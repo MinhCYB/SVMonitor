@@ -17,6 +17,14 @@ parser of untrusted input, and D-Bus call; targeted tests for each fix. Not an e
 | 10 | Terminal launcher | `general.terminal` is split on whitespace, never passed through a shell; alias is a separate argv element. The config file is trusted (user-owned, 0600). | Accepted |
 | 11 | systemd unit | Only `NoNewPrivileges`, `RestrictSUIDSGID`, `LockPersonality`. A stricter variant (`ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`) was **tried and rejected**: in a user manager it uses a user namespace, root-owned `/etc/ssh/ssh_config.d/*` then appears owned by `nobody` and OpenSSH refuses it, so every probe failed. | Tested on this machine |
 
+## v0.1.1 additions
+| # | Area | Finding | Status |
+|---|---|---|---|
+| 12 | Signal handling | Notifier/D-Bus threads were spawned before signals were blocked, so a process-directed `SIGHUP` terminated the daemon (`svmonitor reload` killed the service). | Fixed: signals are blocked first thing in `run_daemon`, before any thread; one `sigwait` thread handles them. Regression: `tests/daemon_lifecycle.rs` (5 of 6 fail with the old ordering, verified). |
+| 13 | Signal mask inheritance | Blocked-signal masks survive `exec`; ssh probes and launched terminals would ignore SIGINT/SIGTERM/SIGHUP. | Fixed: `pre_exec` clears the mask in probe, `open_ssh`, `open_path`. Verified: launched `ssh` has `SigBlk=0`. |
+| 14 | Reload races | A probe in flight during reload could write stale data into a changed or disabled server. | Fixed with per-slot generation bump on definition change/disable. |
+| 15 | Terminal override | `general.terminal` is split into argv by a small quote-aware parser; no shell is involved, unclosed quotes are rejected, the ssh destination is a separate argv element after `--`. | Reviewed, unit-tested |
+
 ## Residual risks
 - A malicious *server* controls text we display (mitigated by #2) and can lie about metrics; it cannot make us execute anything.
 - A user with write access to `~/.config/svmonitor/config.toml` already controls the account.

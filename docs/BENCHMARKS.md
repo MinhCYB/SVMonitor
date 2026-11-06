@@ -35,3 +35,18 @@ History written: 24 KiB for the run (rotation at 2 MiB per file is covered by a 
 - Multi-day (24/7) runtime; only the ~6 minute soak above and accelerated polling.
 - Memory with a tray host attached (none exists on this machine); the SNI/dbusmenu code runs either way, but a host adds a little D-Bus traffic.
 - Remote-side cost: one `sh` + one `df` per poll (plus `sleep 1` on the first poll for a CPU sample). Not measured on the server.
+
+## v0.1.1 re-measurement (after signal/lifecycle and terminal changes)
+Same machine, scenarios and tooling as above; release binary `target/release/svmonitor` v0.1.1.
+
+| Scenario | Duration | RSS avg / max | Threads max | FDs | CPU daemon | CPU ssh children | CPU total |
+|---|---|---|---|---|---|---|---|
+| Idle, tray, 1 server @60 s (real `catplus`) | 240 s | 6.4 / 6.4 MiB | 9 | 10 | 0.013% | 0.025% | **0.037%** |
+| Outage, tray, 2 servers down | 120 s | 6.3 / 6.5 MiB | 9 | 10 | 0.033% | 0.042% | **0.075%** |
+
+Soak (3 fake servers, 5 s interval, 330 s): RSS 4600 -> 4608 KiB, fds 6 -> 6, threads 2 -> 2, zombies 0.
+
+Versus v0.1.0: idle CPU unchanged (0.037%); RSS +~1 MiB (5.2 -> 6.4 MiB) and outage CPU +0.008 points (0.067 -> 0.075%), both within
+the resolution of this method (10 ms ticks) and well inside the targets (RSS <= 20 MiB, CPU < 0.1%). The RSS difference was not
+bisected; plausible contributors are the larger launcher module and a notifier thread now started with signals blocked, but that is
+unverified.
