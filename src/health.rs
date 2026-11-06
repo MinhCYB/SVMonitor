@@ -83,6 +83,8 @@ impl Tracker {
             self.breach_count.clear();
             self.breach_active.clear();
             self.prev_cpu = None;
+            self.metrics = None;
+            self.ssh = SshState::Unknown;
             self.detail.clear();
         }
         Some(Event {
@@ -708,6 +710,10 @@ mod tests {
         let e = t.set_enabled(false, 10).unwrap();
         assert_eq!(e.kind, EventKind::Disabled);
         assert_eq!(t.overall, Overall::Disabled);
+        assert!(
+            t.metrics.is_none() && t.ssh == SshState::Unknown,
+            "no stale data when off"
+        );
         assert!(t.apply(ok(10, 1), &ctx(11), &th, &g).is_empty());
         assert_eq!(t.overall, Overall::Disabled);
         assert_eq!(t.next_delay(&g, 60), u64::MAX);
