@@ -3,18 +3,24 @@
 use std::fs;
 
 pub fn has_default_route() -> bool {
-    let v4 = fs::read_to_string("/proc/net/route").map(|t| v4_default(&t)).unwrap_or(false);
+    let v4 = fs::read_to_string("/proc/net/route")
+        .map(|t| v4_default(&t))
+        .unwrap_or(false);
     if v4 {
         return true;
     }
-    fs::read_to_string("/proc/net/ipv6_route").map(|t| v6_default(&t)).unwrap_or(false)
+    fs::read_to_string("/proc/net/ipv6_route")
+        .map(|t| v6_default(&t))
+        .unwrap_or(false)
 }
 
 pub fn v4_default(table: &str) -> bool {
     table.lines().skip(1).any(|l| {
         let f: Vec<&str> = l.split_whitespace().collect();
         // Iface Destination Gateway Flags ... ; default = destination 0 with RTF_UP (0x1)
-        f.len() > 3 && f[1] == "00000000" && u32::from_str_radix(f[3], 16).is_ok_and(|fl| fl & 1 != 0)
+        f.len() > 3
+            && f[1] == "00000000"
+            && u32::from_str_radix(f[3], 16).is_ok_and(|fl| fl & 1 != 0)
     })
 }
 

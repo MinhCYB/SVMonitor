@@ -32,7 +32,11 @@ impl History {
         if let Some(d) = events.parent() {
             let _ = ensure_private_dir(d);
         }
-        History { events, samples, keep_samples }
+        History {
+            events,
+            samples,
+            keep_samples,
+        }
     }
 
     pub fn record_event(&self, e: &Event) {
@@ -63,7 +67,12 @@ impl History {
 
 fn append(path: &Path, line: &str) {
     rotate_if_needed(path);
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).mode(0o600).open(path) {
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .open(path)
+    {
         let _ = writeln!(f, "{line}");
     }
 }
@@ -105,7 +114,14 @@ mod tests {
     use crate::model::EventKind;
 
     fn ev(i: i64, s: &str) -> Event {
-        Event { ts: i, server: s.into(), kind: EventKind::Down, message: format!("m{i}"), key: "down".into(), notify: true }
+        Event {
+            ts: i,
+            server: s.into(),
+            kind: EventKind::Down,
+            message: format!("m{i}"),
+            key: "down".into(),
+            notify: true,
+        }
     }
 
     #[test]
@@ -128,7 +144,12 @@ mod tests {
         let p = d.path().join("e.jsonl");
         let h = History::new(p.clone(), d.path().join("s"), false);
         h.record_event(&ev(1, "a"));
-        fs::OpenOptions::new().append(true).open(&p).unwrap().write_all(b"{broken\n").unwrap();
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&p)
+            .unwrap()
+            .write_all(b"{broken\n")
+            .unwrap();
         h.record_event(&ev(2, "a"));
         assert_eq!(read_events(&p, None, 10).len(), 2);
     }

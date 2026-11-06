@@ -21,7 +21,7 @@ pub struct ProbeSpec {
 
 #[derive(Debug)]
 pub enum ProbeResult {
-    Ok(RawSample),
+    Ok(Box<RawSample>),
     Fail { kind: FailKind, detail: String },
 }
 
@@ -32,19 +32,31 @@ pub fn build_args(spec: &ProbeSpec) -> Vec<String> {
     let ct = spec.connect_timeout.as_secs().max(1);
     let mut a: Vec<String> = [
         "-T",
-        "-o", "BatchMode=yes",
-        "-o", &format!("ConnectTimeout={ct}"),
-        "-o", "ServerAliveInterval=5",
-        "-o", "ServerAliveCountMax=2",
-        "-o", "ClearAllForwardings=yes",
-        "-o", "ForwardAgent=no",
-        "-o", "ForwardX11=no",
-        "-o", "PermitLocalCommand=no",
-        "-o", "RemoteCommand=none",
-        "-o", "RequestTTY=no",
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        &format!("ConnectTimeout={ct}"),
+        "-o",
+        "ServerAliveInterval=5",
+        "-o",
+        "ServerAliveCountMax=2",
+        "-o",
+        "ClearAllForwardings=yes",
+        "-o",
+        "ForwardAgent=no",
+        "-o",
+        "ForwardX11=no",
+        "-o",
+        "PermitLocalCommand=no",
+        "-o",
+        "RemoteCommand=none",
+        "-o",
+        "RequestTTY=no",
         // Reuse an existing multiplexed master if the user has one, never start one.
-        "-o", "ControlMaster=no",
-        "-o", "LogLevel=ERROR",
+        "-o",
+        "ControlMaster=no",
+        "-o",
+        "LogLevel=ERROR",
     ]
     .iter()
     .map(|s| s.to_string())
@@ -69,9 +81,20 @@ pub fn classify_stderr(stderr: &str) -> FailKind {
         "host key for",
     ]) {
         FailKind::HostKey
-    } else if has(&["permission denied", "too many authentication failures", "no more authentication methods", "authentication failed", "agent refused"]) {
+    } else if has(&[
+        "permission denied",
+        "too many authentication failures",
+        "no more authentication methods",
+        "authentication failed",
+        "agent refused",
+    ]) {
         FailKind::Auth
-    } else if has(&["could not resolve hostname", "name or service not known", "temporary failure in name resolution", "nodename nor servname"]) {
+    } else if has(&[
+        "could not resolve hostname",
+        "name or service not known",
+        "temporary failure in name resolution",
+        "nodename nor servname",
+    ]) {
         FailKind::Dns
     } else if has(&["timed out", "timeout"]) {
         FailKind::Timeout
@@ -79,7 +102,13 @@ pub fn classify_stderr(stderr: &str) -> FailKind {
         FailKind::Refused
     } else if has(&["no route to host", "network is unreachable", "host is down"]) {
         FailKind::NoRoute
-    } else if has(&["connection reset", "connection closed by", "kex_exchange_identification", "broken pipe", "connection lost"]) {
+    } else if has(&[
+        "connection reset",
+        "connection closed by",
+        "kex_exchange_identification",
+        "broken pipe",
+        "connection lost",
+    ]) {
         FailKind::Reset
     } else {
         FailKind::Other
@@ -87,26 +116,46 @@ pub fn classify_stderr(stderr: &str) -> FailKind {
 }
 
 fn first_line(s: &str) -> String {
-    s.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").chars().take(200).collect()
+    crate::util::sanitize_text(
+        s.lines()
+            .map(str::trim)
+            .find(|l| !l.is_empty())
+            .unwrap_or(""),
+        200,
+    )
 }
 
 /// Interpret a finished ssh run. Separated from process handling so it is unit-testable.
 pub fn interpret(exit_code: Option<i32>, stdout: &str, stderr: &str, ts: i64) -> ProbeResult {
     if exit_code == Some(0) {
         return match metrics::parse(stdout, ts) {
-            Ok(r) => ProbeResult::Ok(r),
-            Err(e) => ProbeResult::Fail { kind: FailKind::Remote, detail: e.to_string() },
+            Ok(r) => ProbeResult::Ok(Box::new(r)),
+            Err(e) => ProbeResult::Fail {
+                kind: FailKind::Remote,
+                detail: e.to_string(),
+            },
         };
     }
     let detail = first_line(stderr);
     if exit_code == Some(255) || exit_code.is_none() {
         let kind = classify_stderr(stderr);
-        let detail = if detail.is_empty() { kind.label().to_string() } else { detail };
+        let detail = if detail.is_empty() {
+            kind.label().to_string()
+        } else {
+            detail
+        };
         return ProbeResult::Fail { kind, detail };
     }
     // Non-zero, non-255: the remote command itself failed (e.g. no `sh`).
-    let detail = if detail.is_empty() { format!("remote exited with status {}", exit_code.unwrap_or(-1)) } else { detail };
-    ProbeResult::Fail { kind: FailKind::Remote, detail }
+    let detail = if detail.is_empty() {
+        format!("remote exited with status {}", exit_code.unwrap_or(-1))
+    } else {
+        detail
+    };
+    ProbeResult::Fail {
+        kind: FailKind::Remote,
+        detail,
+    }
 }
 
 fn read_capped<R: Read>(mut r: R, cap: u64) -> String {
@@ -127,7 +176,12 @@ pub fn run(spec: &ProbeSpec, ts: i64) -> ProbeResult {
         .process_group(0);
     let mut child = match cmd.spawn() {
         Ok(c) => c,
-        Err(e) => return ProbeResult::Fail { kind: FailKind::Spawn, detail: format!("{}: {e}", spec.ssh_bin) },
+        Err(e) => {
+            return ProbeResult::Fail {
+                kind: FailKind::Spawn,
+                detail: format!("{}: {e}", spec.ssh_bin),
+            };
+        }
     };
     let pgid = child.id() as i32;
 
@@ -142,8 +196,18 @@ pub fn run(spec: &ProbeSpec, ts: i64) -> ProbeResult {
             })
             .ok();
     }
-    let out = child.stdout.take().map(|o| std::thread::Builder::new().name("svm-out".into()).stack_size(128 * 1024).spawn(move || read_capped(o, MAX_STDOUT)));
-    let err = child.stderr.take().map(|e| std::thread::Builder::new().name("svm-err".into()).stack_size(128 * 1024).spawn(move || read_capped(e, MAX_STDERR)));
+    let out = child.stdout.take().map(|o| {
+        std::thread::Builder::new()
+            .name("svm-out".into())
+            .stack_size(128 * 1024)
+            .spawn(move || read_capped(o, MAX_STDOUT))
+    });
+    let err = child.stderr.take().map(|e| {
+        std::thread::Builder::new()
+            .name("svm-err".into())
+            .stack_size(128 * 1024)
+            .spawn(move || read_capped(e, MAX_STDERR))
+    });
 
     let start = Instant::now();
     let mut timed_out = false;
@@ -164,10 +228,19 @@ pub fn run(spec: &ProbeSpec, ts: i64) -> ProbeResult {
     };
     // The whole group is gone or finished; kill stragglers (e.g. ProxyCommand children) so pipes close.
     kill_group(pgid);
-    let stdout = out.and_then(|h| h.ok()).and_then(|h| h.join().ok()).unwrap_or_default();
-    let stderr = err.and_then(|h| h.ok()).and_then(|h| h.join().ok()).unwrap_or_default();
+    let stdout = out
+        .and_then(|h| h.ok())
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
+    let stderr = err
+        .and_then(|h| h.ok())
+        .and_then(|h| h.join().ok())
+        .unwrap_or_default();
     if timed_out {
-        return ProbeResult::Fail { kind: FailKind::Timeout, detail: format!("no response within {}s", spec.deadline.as_secs()) };
+        return ProbeResult::Fail {
+            kind: FailKind::Timeout,
+            detail: format!("no response within {}s", spec.deadline.as_secs()),
+        };
     }
     let code = status.and_then(|s| s.code());
     interpret(code, &stdout, &stderr, ts)
@@ -185,7 +258,13 @@ mod tests {
     use super::*;
 
     fn spec(bin: &str, server: Server, deadline: u64) -> ProbeSpec {
-        ProbeSpec { ssh_bin: bin.into(), server, connect_timeout: Duration::from_secs(5), deadline: Duration::from_secs(deadline), sample_cpu: false }
+        ProbeSpec {
+            ssh_bin: bin.into(),
+            server,
+            connect_timeout: Duration::from_secs(5),
+            deadline: Duration::from_secs(deadline),
+            sample_cpu: false,
+        }
     }
 
     #[test]
@@ -195,7 +274,10 @@ mod tests {
         assert!(j.contains("BatchMode=yes"));
         assert!(j.contains("RemoteCommand=none"));
         assert!(j.contains("ClearAllForwardings=yes"));
-        assert!(!j.contains("StrictHostKeyChecking"), "host key policy must stay with the user");
+        assert!(
+            !j.contains("StrictHostKeyChecking"),
+            "host key policy must stay with the user"
+        );
         assert!(!j.contains("UserKnownHostsFile"));
         let n = a.len();
         assert_eq!(&a[n - 4..], ["--", "web", "sh", "-s"]);
@@ -203,7 +285,13 @@ mod tests {
 
     #[test]
     fn manual_server_args() {
-        let s = Server { host: Some("h".into()), user: Some("u".into()), port: Some(2222), identity_file: Some("/k".into()), ..Server::alias("m") };
+        let s = Server {
+            host: Some("h".into()),
+            user: Some("u".into()),
+            port: Some(2222),
+            identity_file: Some("/k".into()),
+            ..Server::alias("m")
+        };
         let a = build_args(&spec("ssh", s, 10));
         let i = a.iter().position(|x| x == "-p").unwrap();
         assert_eq!(a[i + 1], "2222");
@@ -213,31 +301,98 @@ mod tests {
 
     #[test]
     fn classifies_stderr() {
-        assert_eq!(classify_stderr("Host key verification failed."), FailKind::HostKey);
-        assert_eq!(classify_stderr("@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@"), FailKind::HostKey);
-        assert_eq!(classify_stderr("user@h: Permission denied (publickey)."), FailKind::Auth);
-        assert_eq!(classify_stderr("ssh: Could not resolve hostname x: Name or service not known"), FailKind::Dns);
-        assert_eq!(classify_stderr("ssh: connect to host x port 22: Connection timed out"), FailKind::Timeout);
-        assert_eq!(classify_stderr("ssh: connect to host x port 22: Connection refused"), FailKind::Refused);
-        assert_eq!(classify_stderr("ssh: connect to host x port 22: No route to host"), FailKind::NoRoute);
-        assert_eq!(classify_stderr("ssh: connect to host x port 22: Network is unreachable"), FailKind::NoRoute);
-        assert_eq!(classify_stderr("Connection closed by 1.2.3.4 port 22"), FailKind::Reset);
+        assert_eq!(
+            classify_stderr("Host key verification failed."),
+            FailKind::HostKey
+        );
+        assert_eq!(
+            classify_stderr("@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@"),
+            FailKind::HostKey
+        );
+        assert_eq!(
+            classify_stderr("user@h: Permission denied (publickey)."),
+            FailKind::Auth
+        );
+        assert_eq!(
+            classify_stderr("ssh: Could not resolve hostname x: Name or service not known"),
+            FailKind::Dns
+        );
+        assert_eq!(
+            classify_stderr("ssh: connect to host x port 22: Connection timed out"),
+            FailKind::Timeout
+        );
+        assert_eq!(
+            classify_stderr("ssh: connect to host x port 22: Connection refused"),
+            FailKind::Refused
+        );
+        assert_eq!(
+            classify_stderr("ssh: connect to host x port 22: No route to host"),
+            FailKind::NoRoute
+        );
+        assert_eq!(
+            classify_stderr("ssh: connect to host x port 22: Network is unreachable"),
+            FailKind::NoRoute
+        );
+        assert_eq!(
+            classify_stderr("Connection closed by 1.2.3.4 port 22"),
+            FailKind::Reset
+        );
         assert_eq!(classify_stderr("something odd"), FailKind::Other);
+    }
+
+    #[test]
+    fn stderr_detail_is_sanitised() {
+        match interpret(Some(255), "", "\x1b[2Jboom\x07\n", 0) {
+            ProbeResult::Fail { detail, .. } => {
+                assert!(!detail.chars().any(|c| c.is_control()), "{detail:?}")
+            }
+            _ => panic!(),
+        }
     }
 
     #[test]
     fn interprets_exit_codes() {
         let ok = "svm=1\nload=1 1 1\nuptime=5\nmem_total=100\nmem_avail=50\nsvm_end=1\n";
         assert!(matches!(interpret(Some(0), ok, "", 0), ProbeResult::Ok(_)));
-        assert!(matches!(interpret(Some(0), "garbage", "", 0), ProbeResult::Fail { kind: FailKind::Remote, .. }));
-        assert!(matches!(interpret(Some(127), "", "sh: not found", 0), ProbeResult::Fail { kind: FailKind::Remote, .. }));
-        assert!(matches!(interpret(Some(255), "", "Permission denied (publickey).", 0), ProbeResult::Fail { kind: FailKind::Auth, .. }));
-        assert!(matches!(interpret(None, "", "", 0), ProbeResult::Fail { kind: FailKind::Other, .. }));
+        assert!(matches!(
+            interpret(Some(0), "garbage", "", 0),
+            ProbeResult::Fail {
+                kind: FailKind::Remote,
+                ..
+            }
+        ));
+        assert!(matches!(
+            interpret(Some(127), "", "sh: not found", 0),
+            ProbeResult::Fail {
+                kind: FailKind::Remote,
+                ..
+            }
+        ));
+        assert!(matches!(
+            interpret(Some(255), "", "Permission denied (publickey).", 0),
+            ProbeResult::Fail {
+                kind: FailKind::Auth,
+                ..
+            }
+        ));
+        assert!(matches!(
+            interpret(None, "", "", 0),
+            ProbeResult::Fail {
+                kind: FailKind::Other,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn missing_binary_is_spawn_failure() {
         let r = run(&spec("/nonexistent/ssh", Server::alias("x"), 5), 0);
-        assert!(matches!(r, ProbeResult::Fail { kind: FailKind::Spawn, .. }));
+        assert!(matches!(
+            r,
+            ProbeResult::Fail {
+                kind: FailKind::Spawn,
+                ..
+            }
+        ));
     }
 }

@@ -23,7 +23,9 @@ pub enum Status {
     /// Socket missing or connection refused.
     DaemonDown,
     Stopped,
-    Running { peers: Vec<Peer> },
+    Running {
+        peers: Vec<Peer>,
+    },
 }
 
 pub fn fetch(socket: &Path, timeout: Duration) -> Status {
@@ -41,7 +43,9 @@ fn raw_status(socket: &Path, timeout: Duration) -> std::io::Result<String> {
     let mut buf = Vec::new();
     s.take(MAX_BODY as u64).read_to_end(&mut buf)?;
     let text = String::from_utf8_lossy(&buf).into_owned();
-    let (head, body) = text.split_once("\r\n\r\n").ok_or_else(|| std::io::Error::other("bad http"))?;
+    let (head, body) = text
+        .split_once("\r\n\r\n")
+        .ok_or_else(|| std::io::Error::other("bad http"))?;
     if !head.starts_with("HTTP/1.") || !head.lines().next().unwrap_or("").contains(" 200") {
         return Err(std::io::Error::other("localapi status not 200"));
     }
@@ -63,8 +67,17 @@ pub fn parse_status(body: &str) -> Option<Status> {
                 .map(|a| a.iter().filter_map(|i| i.as_str()?.parse().ok()).collect())
                 .unwrap_or_default();
             peers.push(Peer {
-                name: p.get("HostName").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                dns_name: p.get("DNSName").and_then(|x| x.as_str()).unwrap_or("").trim_end_matches('.').to_string(),
+                name: p
+                    .get("HostName")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                dns_name: p
+                    .get("DNSName")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .trim_end_matches('.')
+                    .to_string(),
                 ips,
                 online: p.get("Online").and_then(|x| x.as_bool()).unwrap_or(false),
             });
@@ -133,31 +146,52 @@ mod tests {
     #[test]
     fn classifies_peers() {
         let st = parse_status(JSON).unwrap();
-        assert_eq!(classify("vps-h2xvp-catplus.tail7ed957.ts.net", &st), TsState::PeerOnline);
+        assert_eq!(
+            classify("vps-h2xvp-catplus.tail7ed957.ts.net", &st),
+            TsState::PeerOnline
+        );
         assert_eq!(classify("100.125.99.6", &st), TsState::PeerOnline);
-        assert_eq!(classify("gone.tail7ed957.ts.net", &st), TsState::PeerOffline);
-        assert_eq!(classify("nobody.tail7ed957.ts.net", &st), TsState::PeerNotFound);
+        assert_eq!(
+            classify("gone.tail7ed957.ts.net", &st),
+            TsState::PeerOffline
+        );
+        assert_eq!(
+            classify("nobody.tail7ed957.ts.net", &st),
+            TsState::PeerNotFound
+        );
         assert_eq!(classify("example.com", &st), TsState::NotApplicable);
     }
 
     #[test]
     fn local_problems_are_not_peer_problems() {
-        assert_eq!(classify("a.b.ts.net", &Status::DaemonDown), TsState::DaemonDown);
+        assert_eq!(
+            classify("a.b.ts.net", &Status::DaemonDown),
+            TsState::DaemonDown
+        );
         assert_eq!(classify("a.b.ts.net", &Status::Stopped), TsState::Stopped);
-        assert_eq!(classify("example.com", &Status::DaemonDown), TsState::NotApplicable);
+        assert_eq!(
+            classify("example.com", &Status::DaemonDown),
+            TsState::NotApplicable
+        );
         assert!(TsState::DaemonDown.is_local_problem());
         assert!(!TsState::PeerOffline.is_local_problem());
     }
 
     #[test]
     fn stopped_and_garbage() {
-        assert_eq!(parse_status(r#"{"BackendState":"Stopped"}"#), Some(Status::Stopped));
+        assert_eq!(
+            parse_status(r#"{"BackendState":"Stopped"}"#),
+            Some(Status::Stopped)
+        );
         assert_eq!(parse_status("nope"), None);
     }
 
     #[test]
     fn missing_socket_is_daemon_down() {
-        assert_eq!(fetch(Path::new("/nonexistent/sock"), Duration::from_millis(100)), Status::DaemonDown);
+        assert_eq!(
+            fetch(Path::new("/nonexistent/sock"), Duration::from_millis(100)),
+            Status::DaemonDown
+        );
     }
 
     #[test]

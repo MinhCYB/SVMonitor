@@ -29,10 +29,16 @@ pub fn find_in_path(bin: &str) -> Option<std::path::PathBuf> {
         let p = std::path::PathBuf::from(bin);
         return p.is_file().then_some(p);
     }
-    std::env::var_os("PATH")?.to_str()?.split(':').map(|d| std::path::Path::new(d).join(bin)).find(|p| {
-        use std::os::unix::fs::PermissionsExt;
-        p.metadata().map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0).unwrap_or(false)
-    })
+    std::env::var_os("PATH")?
+        .to_str()?
+        .split(':')
+        .map(|d| std::path::Path::new(d).join(bin))
+        .find(|p| {
+            use std::os::unix::fs::PermissionsExt;
+            p.metadata()
+                .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        })
 }
 
 /// Terminal command prefix for `configured` (a user supplied command line, may contain args) or auto-detected.
@@ -70,7 +76,12 @@ pub fn ssh_command(ssh_bin: &str, server: &Server) -> Vec<String> {
     c
 }
 
-pub fn build(terminal: &str, ssh_bin: &str, server: &Server, have: &dyn Fn(&str) -> bool) -> Result<Vec<String>> {
+pub fn build(
+    terminal: &str,
+    ssh_bin: &str,
+    server: &Server,
+    have: &dyn Fn(&str) -> bool,
+) -> Result<Vec<String>> {
     let Some(mut pre) = terminal_prefix(terminal, have) else {
         bail!("no terminal emulator found; set general.terminal in the config");
     };
@@ -82,20 +93,39 @@ pub fn build(terminal: &str, ssh_bin: &str, server: &Server, have: &dyn Fn(&str)
 pub fn open_ssh(terminal: &str, ssh_bin: &str, server: &Server) -> Result<()> {
     let argv = build(terminal, ssh_bin, server, &|b| find_in_path(b).is_some())?;
     let mut cmd = Command::new(&argv[0]);
-    cmd.args(&argv[1..]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
-    let mut child = cmd.spawn().map_err(|e| anyhow::anyhow!("starting {}: {e}", argv[0]))?;
-    std::thread::Builder::new().name("svm-reap".into()).stack_size(64 * 1024).spawn(move || {
-        let _ = child.wait();
-    })?;
+    cmd.args(&argv[1..])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("starting {}: {e}", argv[0]))?;
+    std::thread::Builder::new()
+        .name("svm-reap".into())
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            let _ = child.wait();
+        })?;
     Ok(())
 }
 
 pub fn open_path(path: &std::path::Path) -> Result<()> {
-    let Some(opener) = find_in_path("xdg-open") else { bail!("xdg-open not found") };
-    let mut child = Command::new(opener).arg(path).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
-    std::thread::Builder::new().name("svm-reap".into()).stack_size(64 * 1024).spawn(move || {
-        let _ = child.wait();
-    })?;
+    let Some(opener) = find_in_path("xdg-open") else {
+        bail!("xdg-open not found")
+    };
+    let mut child = Command::new(opener)
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    std::thread::Builder::new()
+        .name("svm-reap".into())
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            let _ = child.wait();
+        })?;
     Ok(())
 }
 
@@ -113,16 +143,30 @@ mod tests {
     #[test]
     fn configured_terminal() {
         let have = |_: &str| true;
-        assert_eq!(terminal_prefix("konsole", &have).unwrap(), vec!["konsole", "-e"]);
-        assert_eq!(terminal_prefix("myterm --run", &have).unwrap(), vec!["myterm", "--run"]);
+        assert_eq!(
+            terminal_prefix("konsole", &have).unwrap(),
+            vec!["konsole", "-e"]
+        );
+        assert_eq!(
+            terminal_prefix("myterm --run", &have).unwrap(),
+            vec!["myterm", "--run"]
+        );
     }
 
     #[test]
     fn ssh_alias_vs_manual() {
         let a = ssh_command("ssh", &Server::alias("catplus"));
         assert_eq!(a, vec!["ssh", "--", "catplus"]);
-        let m = Server { host: Some("h".into()), user: Some("u".into()), port: Some(2200), ..Server::alias("m") };
-        assert_eq!(ssh_command("ssh", &m), vec!["ssh", "-p", "2200", "--", "u@h"]);
+        let m = Server {
+            host: Some("h".into()),
+            user: Some("u".into()),
+            port: Some(2200),
+            ..Server::alias("m")
+        };
+        assert_eq!(
+            ssh_command("ssh", &m),
+            vec!["ssh", "-p", "2200", "--", "u@h"]
+        );
     }
 
     #[test]

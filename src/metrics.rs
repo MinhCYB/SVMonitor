@@ -60,7 +60,10 @@ pub enum ParseError {
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ParseError::NoMarker => write!(f, "remote output not recognised (is the remote shell POSIX?)"),
+            ParseError::NoMarker => write!(
+                f,
+                "remote output not recognised (is the remote shell POSIX?)"
+            ),
             ParseError::Truncated => write!(f, "remote output truncated"),
             ParseError::Missing(k) => write!(f, "remote did not report {k}"),
         }
@@ -69,13 +72,18 @@ impl std::fmt::Display for ParseError {
 
 const MAX_DISKS: usize = 8;
 
+/// Remote supplied strings are untrusted display text.
+fn clean(v: &str) -> String {
+    crate::util::sanitize_text(v, 80)
+}
+
 /// Parse the script output. Unknown lines are ignored so MOTD noise cannot break parsing.
 pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
     let mut saw_start = false;
     let mut saw_end = false;
     let mut load = None;
     let mut uptime = None;
-    let mut cpu = None;
+    let mut cpu: Option<[u64; 8]> = None;
     let mut cpu2 = None;
     let mut cores = None;
     let mut procs = None;
@@ -97,10 +105,15 @@ pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
             saw_end = true;
             break;
         }
-        let Some((k, v)) = line.split_once('=') else { continue };
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
         match k {
             "load" => {
-                let p: Vec<f32> = v.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                let p: Vec<f32> = v
+                    .split_whitespace()
+                    .filter_map(|x| x.parse().ok())
+                    .collect();
                 if p.len() == 3 {
                     load = Some([p[0], p[1], p[2]]);
                 }
@@ -108,7 +121,10 @@ pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
             "procs" => procs = v.trim().parse::<u32>().ok(),
             "uptime" => uptime = v.trim().parse::<f64>().ok().map(|u| u as u64),
             "cpu" => {
-                let p: Vec<u64> = v.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                let p: Vec<u64> = v
+                    .split_whitespace()
+                    .filter_map(|x| x.parse().ok())
+                    .collect();
                 if p.len() == 8 {
                     let mut a = [0u64; 8];
                     a.copy_from_slice(&p);
@@ -116,7 +132,10 @@ pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
                 }
             }
             "cpu2" => {
-                let p: Vec<u64> = v.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+                let p: Vec<u64> = v
+                    .split_whitespace()
+                    .filter_map(|x| x.parse().ok())
+                    .collect();
                 if p.len() == 8 {
                     let mut a = [0u64; 8];
                     a.copy_from_slice(&p);
@@ -134,16 +153,23 @@ pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
                     let mut it = v.splitn(3, '|');
                     if let (Some(t), Some(u), Some(m)) = (it.next(), it.next(), it.next()) {
                         if let (Ok(t), Ok(u)) = (t.parse::<u64>(), u.parse::<u64>()) {
-                            if t > 0 && !m.is_empty() && !disks.iter().any(|d: &DiskUsage| d.mount == m) {
-                                disks.push(DiskUsage { mount: m.to_string(), total_kib: t, used_kib: u });
+                            if t > 0
+                                && !m.is_empty()
+                                && !disks.iter().any(|d: &DiskUsage| d.mount == m)
+                            {
+                                disks.push(DiskUsage {
+                                    mount: clean(m),
+                                    total_kib: t,
+                                    used_kib: u,
+                                });
                             }
                         }
                     }
                 }
             }
-            "os" => os = Some(v.trim().trim_matches('"').to_string()).filter(|s| !s.is_empty()),
-            "kernel" => kernel = Some(v.trim().to_string()).filter(|s| !s.is_empty()),
-            "hostname" => hostname = Some(v.trim().to_string()).filter(|s| !s.is_empty()),
+            "os" => os = Some(clean(v.trim().trim_matches('"'))).filter(|s| !s.is_empty()),
+            "kernel" => kernel = Some(clean(v)).filter(|s| !s.is_empty()),
+            "hostname" => hostname = Some(clean(v)).filter(|s| !s.is_empty()),
             _ => {}
         }
     }
@@ -154,7 +180,9 @@ pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
         return Err(ParseError::Truncated);
     }
     let mem_total = mem_total.ok_or(ParseError::Missing("memory"))?;
-    let mem_avail = mem_avail.or(mem_free).ok_or(ParseError::Missing("memory"))?;
+    let mem_avail = mem_avail
+        .or(mem_free)
+        .ok_or(ParseError::Missing("memory"))?;
     let swap_total = swap_total.unwrap_or(0);
     let swap_free = swap_free.unwrap_or(swap_total);
     let mut m = Metrics {
@@ -173,12 +201,15 @@ pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
         kernel,
         hostname,
     };
-    let mut cpu = cpu;
     if let (Some(a), Some(b)) = (cpu, cpu2) {
         m.cpu_pct = cpu_pct(&a, &b);
         cpu = Some(b);
     }
-    Ok(RawSample { ts, cpu, metrics: m })
+    Ok(RawSample {
+        ts,
+        cpu,
+        metrics: m,
+    })
 }
 
 /// CPU busy percentage between two /proc/stat snapshots (user nice system idle iowait irq softirq steal).
@@ -226,6 +257,15 @@ mod tests {
     }
 
     #[test]
+    fn remote_strings_cannot_inject_terminal_escapes() {
+        let t = "svm=1\nload=1 1 1\nuptime=5\nmem_total=100\nmem_avail=50\nos=\"Evil\x1b]0;pwn\x07\"\nhostname=h\x1b[2J\ndisk=100|1|/mnt/\x1b[31m\nsvm_end=1\n";
+        let m = parse(t, 0).unwrap().metrics;
+        for s in [m.os.unwrap(), m.hostname.unwrap(), m.disks[0].mount.clone()] {
+            assert!(!s.chars().any(|c| c.is_control()), "{s:?}");
+        }
+    }
+
+    #[test]
     fn no_swap_and_mem_free_fallback() {
         let t = "svm=1\nload=1 1 1\nuptime=5\nmem_total=100\nmem_free=40\nsvm_end=1\n";
         let m = parse(t, 0).unwrap().metrics;
@@ -247,7 +287,11 @@ mod tests {
     #[test]
     fn script_runs_locally_and_parses() {
         // The remote script is plain POSIX sh; run it against this machine's /proc.
-        let out = std::process::Command::new("sh").arg("-c").arg(script(false)).output().unwrap();
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(script(false))
+            .output()
+            .unwrap();
         let text = String::from_utf8_lossy(&out.stdout);
         let r = parse(&text, 1).unwrap_or_else(|e| panic!("{e}: {text}"));
         assert!(r.metrics.mem_total_kib > 0);
@@ -258,7 +302,11 @@ mod tests {
 
     #[test]
     fn sampling_mode_yields_cpu_percentage() {
-        let out = std::process::Command::new("sh").arg("-c").arg(script(true)).output().unwrap();
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(script(true))
+            .output()
+            .unwrap();
         let text = String::from_utf8_lossy(&out.stdout);
         let r = parse(&text, 1).unwrap();
         let c = r.metrics.cpu_pct.expect("cpu% from two readings");

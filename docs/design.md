@@ -60,3 +60,9 @@ Overall state: `Unknown | Online | Warning | Down | Attention | LocalIssue | Dis
 - SQLite: extra C dependency; JSONL is enough for append + tail.
 - libssh2/russh: would bypass ssh-agent/ProxyJump/Include/known_hosts semantics the product promises to reuse.
 - GTK/Qt tray: heavy; SNI over D-Bus (ksni) is native to KDE/GNOME(extension)/others.
+
+## Deviations from the first sketch (learned during implementation)
+- The probe script is fed on stdin as `SVM_SAMPLE=<0|1>` + body; the first poll adds a 1 s `sleep` on the server to get a CPU % without waiting a full interval.
+- systemd unit hardening is minimal: `ProtectSystem`/`ProtectHome`/`PrivateTmp` break ssh in a user manager (see SECURITY.md #11).
+- `.deb` is built in a Debian 12 container; Arch package via `makepkg` from the local tree.
+- `Outcome::Ok` and `ProbeResult::Ok` are boxed (large variant).

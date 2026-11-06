@@ -22,7 +22,10 @@ impl Limiter {
         match e.kind {
             // Closing events: only meaningful if the user was told about the problem.
             EventKind::Recovered | EventKind::AttentionCleared => self.announced.remove(&k),
-            EventKind::Rebooted | EventKind::Down | EventKind::Attention | EventKind::ThresholdBreach => {
+            EventKind::Rebooted
+            | EventKind::Down
+            | EventKind::Attention
+            | EventKind::ThresholdBreach => {
                 if let Some(prev) = self.last.get(&k) {
                     if e.ts - prev < cooldown_secs as i64 {
                         return false;
@@ -56,14 +59,30 @@ pub struct Toast {
 pub fn toast_for(e: &Event) -> Toast {
     let (urgency, icon, title) = match e.kind {
         EventKind::Down => (2, "network-error", format!("{} is unreachable", e.server)),
-        EventKind::Recovered => (1, "network-transmit-receive", format!("{} is back online", e.server)),
+        EventKind::Recovered => (
+            1,
+            "network-transmit-receive",
+            format!("{} is back online", e.server),
+        ),
         EventKind::Attention => (1, "dialog-warning", format!("{} needs attention", e.server)),
-        EventKind::AttentionCleared => (0, "emblem-ok-symbolic", format!("{} connection restored", e.server)),
-        EventKind::ThresholdBreach => (1, "dialog-warning", format!("{}: resource alert", e.server)),
+        EventKind::AttentionCleared => (
+            0,
+            "emblem-ok-symbolic",
+            format!("{} connection restored", e.server),
+        ),
+        EventKind::ThresholdBreach => {
+            (1, "dialog-warning", format!("{}: resource alert", e.server))
+        }
         EventKind::Rebooted => (0, "view-refresh", format!("{} rebooted", e.server)),
         _ => (0, "dialog-information", e.server.clone()),
     };
-    Toast { server: e.server.clone(), urgency, summary: title, body: e.message.clone(), icon }
+    Toast {
+        server: e.server.clone(),
+        urgency,
+        summary: title,
+        body: e.message.clone(),
+        icon,
+    }
 }
 
 pub struct Notifier {
@@ -78,7 +97,10 @@ enum Msg {
 impl Notifier {
     pub fn spawn() -> Notifier {
         let (tx, rx) = mpsc::channel();
-        let _ = std::thread::Builder::new().name("svm-notify".into()).stack_size(256 * 1024).spawn(move || worker(rx));
+        let _ = std::thread::Builder::new()
+            .name("svm-notify".into())
+            .stack_size(256 * 1024)
+            .spawn(move || worker(rx));
         Notifier { tx }
     }
     pub fn show(&self, t: Toast) {
@@ -149,7 +171,16 @@ fn notify(c: &zbus::blocking::Connection, t: &Toast, replaces: u32) -> zbus::Res
         "/org/freedesktop/Notifications",
         Some("org.freedesktop.Notifications"),
         "Notify",
-        &("SVMonitor", replaces, t.icon, t.summary.as_str(), t.body.as_str(), Vec::<&str>::new(), hints, timeout),
+        &(
+            "SVMonitor",
+            replaces,
+            t.icon,
+            t.summary.as_str(),
+            crate::util::escape_markup(&t.body).as_str(),
+            Vec::<&str>::new(),
+            hints,
+            timeout,
+        ),
     )?;
     reply.body().deserialize::<u32>()
 }
@@ -159,16 +190,29 @@ mod tests {
     use super::*;
 
     fn ev(ts: i64, kind: EventKind, key: &str) -> Event {
-        Event { ts, server: "s".into(), kind, message: "m".into(), key: key.into(), notify: true }
+        Event {
+            ts,
+            server: "s".into(),
+            kind,
+            message: "m".into(),
+            key: key.into(),
+            notify: true,
+        }
     }
 
     #[test]
     fn recovery_only_after_announced_down() {
         let mut l = Limiter::default();
-        assert!(!l.allow(&ev(1, EventKind::Recovered, "down"), 900), "no prior down notice");
+        assert!(
+            !l.allow(&ev(1, EventKind::Recovered, "down"), 900),
+            "no prior down notice"
+        );
         assert!(l.allow(&ev(2, EventKind::Down, "down"), 900));
         assert!(l.allow(&ev(3, EventKind::Recovered, "down"), 900));
-        assert!(!l.allow(&ev(4, EventKind::Recovered, "down"), 900), "only once");
+        assert!(
+            !l.allow(&ev(4, EventKind::Recovered, "down"), 900),
+            "only once"
+        );
     }
 
     #[test]
@@ -176,9 +220,18 @@ mod tests {
         let mut l = Limiter::default();
         assert!(l.allow(&ev(0, EventKind::Down, "down"), 900));
         assert!(l.allow(&ev(10, EventKind::Recovered, "down"), 900));
-        assert!(!l.allow(&ev(20, EventKind::Down, "down"), 900), "within cooldown");
-        assert!(!l.allow(&ev(30, EventKind::Recovered, "down"), 900), "its down was never shown");
-        assert!(l.allow(&ev(1000, EventKind::Down, "down"), 900), "cooldown over");
+        assert!(
+            !l.allow(&ev(20, EventKind::Down, "down"), 900),
+            "within cooldown"
+        );
+        assert!(
+            !l.allow(&ev(30, EventKind::Recovered, "down"), 900),
+            "its down was never shown"
+        );
+        assert!(
+            l.allow(&ev(1000, EventKind::Down, "down"), 900),
+            "cooldown over"
+        );
     }
 
     #[test]

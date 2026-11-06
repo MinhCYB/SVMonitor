@@ -38,10 +38,48 @@ pub fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
     result
 }
 
-/// Create a directory (and parents) with mode 0700 for the leaf.
+/// Create a directory (and parents) with mode 0700 for the leaf. Refuses a leaf that exists but is
+/// not owned by the current user or is a symlink (matters for the /tmp fallback runtime dir).
 pub fn ensure_private_dir(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::MetadataExt;
     fs::create_dir_all(path)?;
+    let md = fs::symlink_metadata(path)?;
+    // SAFETY: getuid has no preconditions.
+    if !md.is_dir() || md.uid() != unsafe { libc::getuid() } {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!("{} is not a directory owned by you", path.display()),
+        ));
+    }
     fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+}
+
+/// Make untrusted (server supplied) text safe to show in a terminal, menu or notification:
+/// control characters (incl. ESC, newlines) become spaces, bidi overrides are dropped, length is capped.
+pub fn sanitize_text(s: &str, max_chars: usize) -> String {
+    let mut out = String::with_capacity(s.len().min(max_chars * 4));
+    let mut n = 0;
+    for c in s.chars() {
+        if n >= max_chars {
+            out.push('…');
+            break;
+        }
+        let c = match c {
+            c if c.is_control() => ' ',
+            '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{200e}' | '\u{200f}' => continue,
+            c => c,
+        };
+        out.push(c);
+        n += 1;
+    }
+    out.trim().to_string()
+}
+
+/// Escape for the Notifications spec body markup subset.
+pub fn escape_markup(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
 
 pub fn fmt_duration(secs: u64) -> String {
@@ -95,6 +133,33 @@ mod tests {
         assert_eq!(fmt_duration(61), "1m");
         assert_eq!(fmt_duration(3 * 3600 + 120), "3h 2m");
         assert_eq!(fmt_duration(90_000), "1d 1h");
+    }
+
+    #[test]
+    fn sanitizes_untrusted_text() {
+        assert_eq!(
+            sanitize_text("a\x1b[31mred\x07\nnext", 100),
+            "a [31mred  next"
+        );
+        assert_eq!(sanitize_text("ev\u{202e}il", 100), "evil");
+        assert_eq!(sanitize_text("abcdef", 3), "abc…");
+        assert_eq!(escape_markup("<b>&</b>"), "&lt;b&gt;&amp;&lt;/b&gt;");
+    }
+
+    #[test]
+    fn private_dir_rejects_symlink_and_sets_mode() {
+        let d = tempfile::tempdir().unwrap();
+        let real = d.path().join("real");
+        fs::create_dir(&real).unwrap();
+        let link = d.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert!(ensure_private_dir(&link).is_err());
+        let ok = d.path().join("ok/sub");
+        ensure_private_dir(&ok).unwrap();
+        assert_eq!(
+            fs::metadata(&ok).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
     }
 
     #[test]

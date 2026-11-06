@@ -122,8 +122,14 @@ fn paths_for(cli: &Cli) -> Paths {
 
 pub fn main(cli: Cli) -> Result<i32> {
     let paths = paths_for(&cli);
-    match cli.cmd.unwrap_or(Command::Run { headless: false, no_notify: false }) {
-        Command::Run { headless, no_notify } => {
+    match cli.cmd.unwrap_or(Command::Run {
+        headless: false,
+        no_notify: false,
+    }) {
+        Command::Run {
+            headless,
+            no_notify,
+        } => {
             run_daemon(paths, headless, no_notify)?;
             Ok(0)
         }
@@ -132,23 +138,41 @@ pub fn main(cli: Cli) -> Result<i32> {
         Command::List => {
             let cfg = config::load(&paths.config)?;
             if cfg.servers.is_empty() {
-                println!("No servers configured. Try `svmonitor discover` then `svmonitor import <alias>`.");
+                println!(
+                    "No servers configured. Try `svmonitor discover` then `svmonitor import <alias>`."
+                );
             }
             for s in &cfg.servers {
-                println!("{:<24} {:<4} {}{}", s.name, if s.enabled { "on" } else { "off" }, s.destination(), if s.is_manual() { "  (manual)" } else { "  (ssh alias)" });
+                println!(
+                    "{:<24} {:<4} {}{}",
+                    s.name,
+                    if s.enabled { "on" } else { "off" },
+                    s.destination(),
+                    if s.is_manual() {
+                        "  (manual)"
+                    } else {
+                        "  (ssh alias)"
+                    }
+                );
             }
             Ok(0)
         }
         Command::Discover => {
             let cfg = config::load(&paths.config)?;
-            let Some(p) = sshconfig::default_config_path() else { bail!("HOME is not set") };
+            let Some(p) = sshconfig::default_config_path() else {
+                bail!("HOME is not set")
+            };
             let hosts = sshconfig::discover(&p);
             if hosts.is_empty() {
                 println!("No host aliases found in {}", p.display());
             }
             for h in hosts {
                 let r = sshconfig::resolve(&cfg.general.ssh_binary, &h);
-                let tag = if cfg.server(&h).is_some() { "[monitored]" } else { "" };
+                let tag = if cfg.server(&h).is_some() {
+                    "[monitored]"
+                } else {
+                    ""
+                };
                 match r {
                     Some(r) => println!("{:<20} {}@{}:{} {}", h, r.user, r.hostname, r.port, tag),
                     None => println!("{h:<20} (cannot resolve) {tag}"),
@@ -158,7 +182,9 @@ pub fn main(cli: Cli) -> Result<i32> {
         }
         Command::Import { all, names } => {
             let mut cfg = config::load(&paths.config)?;
-            let Some(p) = sshconfig::default_config_path() else { bail!("HOME is not set") };
+            let Some(p) = sshconfig::default_config_path() else {
+                bail!("HOME is not set")
+            };
             let found = sshconfig::discover(&p);
             let picks: Vec<String> = if all { found.clone() } else { names };
             if picks.is_empty() {
@@ -182,18 +208,50 @@ pub fn main(cli: Cli) -> Result<i32> {
             }
             Ok(0)
         }
-        Command::Add { name, host, user, port, identity, interval } => {
+        Command::Add {
+            name,
+            host,
+            user,
+            port,
+            identity,
+            interval,
+        } => {
             let mut cfg = config::load(&paths.config)?;
-            let s = Server { host, user, port, identity_file: identity, interval_secs: interval, ..Server::alias(&name) };
+            let s = Server {
+                host,
+                user,
+                port,
+                identity_file: identity,
+                interval_secs: interval,
+                ..Server::alias(&name)
+            };
             cfg.add(s)?;
             config::save(&paths.config, &cfg)?;
             signal_reload(&paths);
             println!("added {name}");
             Ok(0)
         }
-        Command::Remove { name } => mutate(&paths, |c| if c.remove(&name) { Ok(()) } else { bail!("unknown server {name:?}") }, &format!("removed {name}")),
-        Command::Enable { name } => mutate(&paths, |c| set_enabled(c, &name, true), &format!("{name}: monitoring on")),
-        Command::Disable { name } => mutate(&paths, |c| set_enabled(c, &name, false), &format!("{name}: monitoring off")),
+        Command::Remove { name } => mutate(
+            &paths,
+            |c| {
+                if c.remove(&name) {
+                    Ok(())
+                } else {
+                    bail!("unknown server {name:?}")
+                }
+            },
+            &format!("removed {name}"),
+        ),
+        Command::Enable { name } => mutate(
+            &paths,
+            |c| set_enabled(c, &name, true),
+            &format!("{name}: monitoring on"),
+        ),
+        Command::Disable { name } => mutate(
+            &paths,
+            |c| set_enabled(c, &name, false),
+            &format!("{name}: monitoring off"),
+        ),
         Command::History { server, n, json } => {
             let evs = history::read_events(&paths.events(), server.as_deref(), n);
             let now = now_unix();
@@ -201,7 +259,13 @@ pub fn main(cli: Cli) -> Result<i32> {
                 if json {
                     println!("{}", serde_json::to_string(&e)?);
                 } else {
-                    println!("{} {:<16} {:<18} {}", fmt_time(e.ts), e.server, format!("{:?}", e.kind).to_lowercase(), e.message);
+                    println!(
+                        "{} {:<16} {:<18} {}",
+                        fmt_time(e.ts),
+                        e.server,
+                        format!("{:?}", e.kind).to_lowercase(),
+                        e.message
+                    );
                     let _ = now;
                 }
             }
@@ -209,7 +273,10 @@ pub fn main(cli: Cli) -> Result<i32> {
         }
         Command::Ssh { name } => {
             let cfg = config::load(&paths.config)?;
-            let s = cfg.server(&name).cloned().unwrap_or_else(|| Server::alias(&name));
+            let s = cfg
+                .server(&name)
+                .cloned()
+                .unwrap_or_else(|| Server::alias(&name));
             s.validate()?;
             launcher::open_ssh(&cfg.general.terminal, &cfg.general.ssh_binary, &s)?;
             Ok(0)
@@ -222,13 +289,31 @@ pub fn main(cli: Cli) -> Result<i32> {
                     autostart::enable(&p, exe.to_str().context("non-UTF-8 executable path")?)?;
                     println!("enabled: {}", p.display());
                 }
-                AutostartCmd::Disable => println!("{}", if autostart::disable(&p)? { "disabled" } else { "was not enabled" }),
-                AutostartCmd::Status => println!("{}", if autostart::is_enabled(&p) { "enabled" } else { "disabled" }),
+                AutostartCmd::Disable => println!(
+                    "{}",
+                    if autostart::disable(&p)? {
+                        "disabled"
+                    } else {
+                        "was not enabled"
+                    }
+                ),
+                AutostartCmd::Status => println!(
+                    "{}",
+                    if autostart::is_enabled(&p) {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ),
             }
             Ok(0)
         }
         Command::Reload => {
-            if signal_reload(&paths) { println!("reload requested") } else { println!("monitor is not running") }
+            if signal_reload(&paths) {
+                println!("reload requested")
+            } else {
+                println!("monitor is not running")
+            }
             Ok(0)
         }
         Command::Doctor => doctor(&paths),
@@ -252,15 +337,46 @@ fn doctor(paths: &Paths) -> Result<i32> {
             bad += 1;
         }
     };
-    line(launcher::find_in_path(&cfg.general.ssh_binary).is_some(), format!("ssh client: {}", cfg.general.ssh_binary));
-    line(sshconfig::default_config_path().is_some_and(|p| p.exists()), "~/.ssh/config present".into());
-    line(tray::watcher_present(), "tray host (StatusNotifierWatcher) on session bus; GNOME needs the AppIndicator extension".into());
-    let ts = tailscale::fetch(std::path::Path::new(tailscale::SOCKET), Duration::from_secs(2));
-    line(matches!(ts, tailscale::Status::Running { .. }), "tailscaled reachable and running (optional)".into());
-    line(localnet::has_default_route(), "default network route".into());
-    line(launcher::terminal_prefix(&cfg.general.terminal, &|b| launcher::find_in_path(b).is_some()).is_some(), "terminal emulator for 'Open SSH'".into());
+    line(
+        launcher::find_in_path(&cfg.general.ssh_binary).is_some(),
+        format!("ssh client: {}", cfg.general.ssh_binary),
+    );
+    line(
+        sshconfig::default_config_path().is_some_and(|p| p.exists()),
+        "~/.ssh/config present".into(),
+    );
+    line(
+        tray::watcher_present(),
+        "tray host (StatusNotifierWatcher) on session bus; GNOME needs the AppIndicator extension"
+            .into(),
+    );
+    let ts = tailscale::fetch(
+        std::path::Path::new(tailscale::SOCKET),
+        Duration::from_secs(2),
+    );
+    line(
+        matches!(ts, tailscale::Status::Running { .. }),
+        "tailscaled reachable and running (optional)".into(),
+    );
+    line(
+        localnet::has_default_route(),
+        "default network route".into(),
+    );
+    line(
+        launcher::terminal_prefix(&cfg.general.terminal, &|b| {
+            launcher::find_in_path(b).is_some()
+        })
+        .is_some(),
+        "terminal emulator for 'Open SSH'".into(),
+    );
     let n = crate::notify::Notifier::spawn();
-    n.show(crate::notify::Toast { server: "doctor".into(), urgency: 0, summary: "SVMonitor test notification".into(), body: "If you can read this, notifications work.".into(), icon: "dialog-information" });
+    n.show(crate::notify::Toast {
+        server: "doctor".into(),
+        urgency: 0,
+        summary: "SVMonitor test notification".into(),
+        body: "If you can read this, notifications work.".into(),
+        icon: "dialog-information",
+    });
     std::thread::sleep(Duration::from_millis(800));
     println!("(a test notification was sent; check your desktop)");
     Ok(i32::from(bad > 0))
@@ -291,13 +407,31 @@ fn fmt_time(ts: i64) -> String {
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
     // SAFETY: valid pointers to initialised structs.
     unsafe { libc::localtime_r(&t, &mut tm) };
-    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        tm.tm_year + 1900,
+        tm.tm_mon + 1,
+        tm.tm_mday,
+        tm.tm_hour,
+        tm.tm_min,
+        tm.tm_sec
+    )
 }
 
+/// PID of the running monitor, verified against /proc so a stale state file (crash + PID reuse)
+/// can never make us signal an unrelated process.
 fn running_pid(paths: &Paths) -> Option<u32> {
     let snap: Snapshot = serde_json::from_slice(&std::fs::read(paths.snapshot()).ok()?).ok()?;
-    // SAFETY: signal 0 only checks existence.
-    (unsafe { libc::kill(snap.pid as i32, 0) } == 0).then_some(snap.pid)
+    is_svmonitor(snap.pid).then_some(snap.pid)
+}
+
+fn is_svmonitor(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .map(|c| c.trim() == "svmonitor")
+        .unwrap_or(false)
 }
 
 /// SIGHUP the running monitor, if any.
@@ -312,7 +446,12 @@ fn signal_reload(paths: &Paths) -> bool {
 }
 
 pub fn exit_code_for(servers: &[ServerView]) -> i32 {
-    let worst = servers.iter().filter(|s| s.enabled).map(|s| s.overall.severity()).max().unwrap_or(0);
+    let worst = servers
+        .iter()
+        .filter(|s| s.enabled)
+        .map(|s| s.overall.severity())
+        .max()
+        .unwrap_or(0);
     match worst {
         0..=1 => 0,
         2..=3 => 1,
@@ -330,7 +469,13 @@ fn status(paths: &Paths, json: bool, watch: bool) -> Result<i32> {
                 }
                 eprintln!("(monitor not running; probing once)");
                 let cfg = config::load(&paths.config)?;
-                Snapshot { ts: now_unix(), pid: 0, local_net_ok: localnet::has_default_route(), muted: false, servers: one_shot_all(&cfg, &[]) }
+                Snapshot {
+                    ts: now_unix(),
+                    pid: 0,
+                    local_net_ok: localnet::has_default_route(),
+                    muted: false,
+                    servers: one_shot_all(&cfg, &[]),
+                }
             }
         };
         if json {
@@ -356,13 +501,20 @@ pub fn print_table(s: &Snapshot) {
     if !s.local_net_ok {
         println!("! this machine has no network route\n");
     }
-    println!("{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}", "SERVER", "STATE", "TAILSCALE", "CPU", "RAM", "DISK", "UPTIME", "DETAIL");
+    println!(
+        "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  DETAIL",
+        "SERVER", "STATE", "TAILSCALE", "CPU", "RAM", "DISK", "UPTIME"
+    );
     for v in &s.servers {
         let (cpu, ram, disk, up) = match (&v.metrics, v.ssh) {
             (Some(m), SshState::Available) => (
-                m.cpu_pct.map(|c| format!("{c:.0}%")).unwrap_or_else(|| "-".into()),
+                m.cpu_pct
+                    .map(|c| format!("{c:.0}%"))
+                    .unwrap_or_else(|| "-".into()),
                 format!("{:.0}%", m.mem_pct()),
-                m.worst_disk().map(|d| format!("{:.0}%", d.pct())).unwrap_or_else(|| "-".into()),
+                m.worst_disk()
+                    .map(|d| format!("{:.0}%", d.pct()))
+                    .unwrap_or_else(|| "-".into()),
                 fmt_duration(m.uptime_secs),
             ),
             _ => ("-".into(), "-".into(), "-".into(), "-".into()),
@@ -380,16 +532,42 @@ pub fn print_table(s: &Snapshot) {
                 detail = format!("checked {}", fmt_ago(t, s.ts));
             }
         }
-        println!("{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}", trunc(&v.name, 18), trunc(&state, 16), trunc(v.tailscale.label(), 14), cpu, ram, disk, up, detail);
+        println!(
+            "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}",
+            trunc(&v.name, 18),
+            trunc(&state, 16),
+            trunc(v.tailscale.label(), 14),
+            cpu,
+            ram,
+            disk,
+            up,
+            detail
+        );
     }
-    if let Some(v) = s.servers.iter().find(|v| v.metrics.is_some() && v.ssh == SshState::Available) {
+    if let Some(v) = s
+        .servers
+        .iter()
+        .find(|v| v.metrics.is_some() && v.ssh == SshState::Available)
+    {
         let m = v.metrics.as_ref().unwrap();
-        println!("\n{}: load {:.2} {:.2} {:.2}, RAM {} / {}", v.name, m.load[0], m.load[1], m.load[2], fmt_kib(m.mem_used_kib), fmt_kib(m.mem_total_kib));
+        println!(
+            "\n{}: load {:.2} {:.2} {:.2}, RAM {} / {}",
+            v.name,
+            m.load[0],
+            m.load[1],
+            m.load[2],
+            fmt_kib(m.mem_used_kib),
+            fmt_kib(m.mem_total_kib)
+        );
     }
 }
 
 fn trunc(s: &str, n: usize) -> String {
-    if s.chars().count() <= n { s.to_string() } else { format!("{}…", s.chars().take(n - 1).collect::<String>()) }
+    if s.chars().count() <= n {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(n - 1).collect::<String>())
+    }
 }
 
 /// One immediate, debounce-free probe of a server (for `check` / `status` without a daemon).
@@ -402,9 +580,18 @@ pub fn one_shot(cfg: &Config, s: &Server) -> ServerView {
         deadline: Duration::from_secs(g.probe_timeout_secs),
         sample_cpu: true,
     };
-    let host = s.host.clone().or_else(|| sshconfig::resolve(&g.ssh_binary, &s.name).map(|r| r.hostname));
+    let host = s
+        .host
+        .clone()
+        .or_else(|| sshconfig::resolve(&g.ssh_binary, &s.name).map(|r| r.hostname));
     let ts = match (&host, g.check_tailscale) {
-        (Some(h), true) => tailscale::classify(h, &tailscale::fetch(std::path::Path::new(tailscale::SOCKET), Duration::from_secs(2))),
+        (Some(h), true) => tailscale::classify(
+            h,
+            &tailscale::fetch(
+                std::path::Path::new(tailscale::SOCKET),
+                Duration::from_secs(2),
+            ),
+        ),
         _ => TsState::NotApplicable,
     };
     let mut gg = g.clone();
@@ -414,21 +601,40 @@ pub fn one_shot(cfg: &Config, s: &Server) -> ServerView {
         return t.view(&gg, false);
     }
     let outcome = if ts.is_local_problem() {
-        Outcome::Fail { kind: FailKind::Timeout, detail: String::new() }
+        Outcome::Fail {
+            kind: FailKind::Timeout,
+            detail: String::new(),
+        }
     } else {
         match probe::run(&spec, now_unix()) {
             ProbeResult::Ok(r) => Outcome::Ok(r),
             ProbeResult::Fail { kind, detail } => Outcome::Fail { kind, detail },
         }
     };
-    t.apply(outcome, &Context { now: now_unix(), ts, local_net_ok: localnet::has_default_route() }, &cfg.thresholds, &gg);
+    t.apply(
+        outcome,
+        &Context {
+            now: now_unix(),
+            ts,
+            local_net_ok: localnet::has_default_route(),
+        },
+        &cfg.thresholds,
+        &gg,
+    );
     t.view(&gg, false)
 }
 
 fn one_shot_all(cfg: &Config, names: &[String]) -> Vec<ServerView> {
-    let targets: Vec<&Server> = cfg.servers.iter().filter(|s| names.is_empty() || names.contains(&s.name)).collect();
+    let targets: Vec<&Server> = cfg
+        .servers
+        .iter()
+        .filter(|s| names.is_empty() || names.contains(&s.name))
+        .collect();
     std::thread::scope(|sc| {
-        let hs: Vec<_> = targets.iter().map(|s| sc.spawn(|| one_shot(cfg, s))).collect();
+        let hs: Vec<_> = targets
+            .iter()
+            .map(|s| sc.spawn(|| one_shot(cfg, s)))
+            .collect();
         hs.into_iter().filter_map(|h| h.join().ok()).collect()
     })
 }
@@ -444,7 +650,13 @@ fn check(paths: &Paths, names: &[String], json: bool) -> Result<i32> {
         bail!("no servers configured");
     }
     let views = one_shot_all(&cfg, names);
-    let snap = Snapshot { ts: now_unix(), pid: 0, local_net_ok: localnet::has_default_route(), muted: false, servers: views };
+    let snap = Snapshot {
+        ts: now_unix(),
+        pid: 0,
+        local_net_ok: localnet::has_default_route(),
+        muted: false,
+        servers: views,
+    };
     if json {
         println!("{}", serde_json::to_string_pretty(&snap)?);
     } else {
@@ -456,10 +668,18 @@ fn check(paths: &Paths, names: &[String], json: bool) -> Result<i32> {
 /// Exclusive per-user lock; held for process lifetime.
 fn acquire_lock(paths: &Paths) -> Result<std::fs::File> {
     crate::util::ensure_private_dir(&paths.runtime_dir)?;
-    let f = OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(paths.lock())?;
+    let f = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .mode(0o600)
+        .open(paths.lock())?;
     // SAFETY: fd is valid for the lifetime of `f`.
     if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        bail!("svmonitor is already running (lock {})", paths.lock().display());
+        bail!(
+            "svmonitor is already running (lock {})",
+            paths.lock().display()
+        );
     }
     Ok(f)
 }
@@ -474,21 +694,24 @@ fn install_signals(handle: Handle) -> Result<()> {
             libc::sigaddset(&mut set, s);
         }
         libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
-        std::thread::Builder::new().name("svm-signal".into()).stack_size(64 * 1024).spawn(move || {
-            loop {
-                let mut sig = 0;
-                if libc::sigwait(&set, &mut sig) != 0 {
-                    continue;
-                }
-                match sig {
-                    libc::SIGHUP => handle.send(Cmd::Reload),
-                    _ => {
-                        handle.shutdown();
-                        return;
+        std::thread::Builder::new()
+            .name("svm-signal".into())
+            .stack_size(64 * 1024)
+            .spawn(move || {
+                loop {
+                    let mut sig = 0;
+                    if libc::sigwait(&set, &mut sig) != 0 {
+                        continue;
+                    }
+                    match sig {
+                        libc::SIGHUP => handle.send(Cmd::Reload),
+                        _ => {
+                            handle.shutdown();
+                            return;
+                        }
                     }
                 }
-            }
-        })?;
+            })?;
     }
     Ok(())
 }
@@ -496,13 +719,24 @@ fn install_signals(handle: Handle) -> Result<()> {
 fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
     let _lock = acquire_lock(&paths)?;
     let cfg = config::load(&paths.config)?;
-    let (mut engine, handle) = Engine::new(cfg.clone(), Paths { config: paths.config.clone(), state_dir: paths.state_dir.clone(), runtime_dir: paths.runtime_dir.clone() }, !no_notify);
+    let (mut engine, handle) = Engine::new(
+        cfg.clone(),
+        Paths {
+            config: paths.config.clone(),
+            state_dir: paths.state_dir.clone(),
+            runtime_dir: paths.runtime_dir.clone(),
+        },
+        !no_notify,
+    );
     install_signals(handle.clone())?;
 
     let mut tray_handle = None;
     if !headless {
         use ksni::blocking::TrayMethods;
-        match SvTray::new(handle.clone(), &paths, cfg.clone()).assume_sni_available(true).spawn() {
+        match SvTray::new(handle.clone(), &paths, cfg.clone())
+            .assume_sni_available(true)
+            .spawn()
+        {
             Ok(h) => {
                 let h = std::sync::Arc::new(h);
                 let th = h.clone();
@@ -514,19 +748,31 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
                 if tray::watcher_present() {
                     eprintln!("svmonitor: tray started ({} servers)", cfg.servers.len());
                 } else {
-                    eprintln!("svmonitor: tray registered but no StatusNotifierWatcher is running, so no icon is visible yet.\n  GNOME: install/enable the AppIndicator extension (Arch: gnome-shell-extension-appindicator, Debian: gnome-shell-extension-appindicator).\n  The monitor keeps working (notifications, `svmonitor status`) and the icon appears automatically once a tray host starts.");
+                    eprintln!(
+                        "svmonitor: tray registered but no StatusNotifierWatcher is running, so no icon is visible yet.\n  GNOME: install/enable the AppIndicator extension (Arch: gnome-shell-extension-appindicator, Debian: gnome-shell-extension-appindicator).\n  The monitor keeps working (notifications, `svmonitor status`) and the icon appears automatically once a tray host starts."
+                    );
                 }
             }
-            Err(e) => eprintln!("svmonitor: no system tray ({e}); running headless. Use `svmonitor status` or run with --headless."),
+            Err(e) => eprintln!(
+                "svmonitor: no system tray ({e}); running headless. Use `svmonitor status` or run with --headless."
+            ),
         }
     }
     if tray_handle.is_none() {
         engine.add_event_sink(Box::new(|e: &Event| {
-            println!("{} {} [{:?}] {}", fmt_time(e.ts), e.server, e.kind, e.message);
+            println!(
+                "{} {} [{:?}] {}",
+                fmt_time(e.ts),
+                e.server,
+                e.kind,
+                e.message
+            );
         }));
     }
     if cfg.servers.is_empty() {
-        eprintln!("svmonitor: no servers configured. Run `svmonitor discover` and `svmonitor import <alias>`.");
+        eprintln!(
+            "svmonitor: no servers configured. Run `svmonitor discover` and `svmonitor import <alias>`."
+        );
     }
     engine.run();
     if let Some(h) = tray_handle {
@@ -540,7 +786,23 @@ mod tests {
     use super::*;
 
     fn v(o: Overall, en: bool) -> ServerView {
-        ServerView { name: "a".into(), target: "a".into(), enabled: en, overall: o, ssh: SshState::Unknown, tailscale: TsState::NotApplicable, metrics: None, last_check: None, last_ok: None, down_since: None, detail: String::new(), pending_failures: 0, failure_threshold: 3, active_alerts: vec![], probing: false }
+        ServerView {
+            name: "a".into(),
+            target: "a".into(),
+            enabled: en,
+            overall: o,
+            ssh: SshState::Unknown,
+            tailscale: TsState::NotApplicable,
+            metrics: None,
+            last_check: None,
+            last_ok: None,
+            down_since: None,
+            detail: String::new(),
+            pending_failures: 0,
+            failure_threshold: 3,
+            active_alerts: vec![],
+            probing: false,
+        }
     }
 
     #[test]
@@ -549,8 +811,25 @@ mod tests {
         assert_eq!(exit_code_for(&[v(Overall::Online, true)]), 0);
         assert_eq!(exit_code_for(&[v(Overall::Warning, true)]), 1);
         assert_eq!(exit_code_for(&[v(Overall::LocalIssue, true)]), 1);
-        assert_eq!(exit_code_for(&[v(Overall::Online, true), v(Overall::Down, true)]), 2);
-        assert_eq!(exit_code_for(&[v(Overall::Down, false)]), 0, "disabled servers do not count");
+        assert_eq!(
+            exit_code_for(&[v(Overall::Online, true), v(Overall::Down, true)]),
+            2
+        );
+        assert_eq!(
+            exit_code_for(&[v(Overall::Down, false)]),
+            0,
+            "disabled servers do not count"
+        );
+    }
+
+    #[test]
+    fn stale_pid_is_not_a_monitor() {
+        assert!(!is_svmonitor(0));
+        assert!(
+            !is_svmonitor(std::process::id()),
+            "test binary has a different comm"
+        );
+        assert!(!is_svmonitor(u32::MAX - 1));
     }
 
     #[test]

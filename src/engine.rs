@@ -16,7 +16,13 @@ use std::time::{Duration, Instant};
 pub type Reply = Option<Sender<Result<(), String>>>;
 
 pub enum Cmd {
-    ProbeDone { name: String, generation: u64, host: Option<String>, ts: TsState, outcome: Outcome },
+    ProbeDone {
+        name: String,
+        generation: u64,
+        host: Option<String>,
+        ts: TsState,
+        outcome: Outcome,
+    },
     /// Probe now: one server or all enabled.
     CheckNow(Option<String>),
     SetEnabled(String, bool, Reply),
@@ -40,8 +46,11 @@ impl Handle {
     }
     fn call(&self, make: impl FnOnce(Reply) -> Cmd) -> Result<(), String> {
         let (tx, rx) = mpsc::channel();
-        self.tx.send(make(Some(tx))).map_err(|_| "engine stopped".to_string())?;
-        rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "engine did not answer".to_string())?
+        self.tx
+            .send(make(Some(tx)))
+            .map_err(|_| "engine stopped".to_string())?;
+        rx.recv_timeout(Duration::from_secs(5))
+            .map_err(|_| "engine did not answer".to_string())?
     }
     pub fn set_enabled(&self, name: &str, on: bool) -> Result<(), String> {
         self.call(|r| Cmd::SetEnabled(name.into(), on, r))
@@ -90,7 +99,10 @@ impl TsCache {
                 return s.clone();
             }
         }
-        let s = tailscale::fetch(std::path::Path::new(tailscale::SOCKET), Duration::from_secs(2));
+        let s = tailscale::fetch(
+            std::path::Path::new(tailscale::SOCKET),
+            Duration::from_secs(2),
+        );
         *g = Some((Instant::now(), s.clone()));
         s
     }
@@ -124,7 +136,10 @@ const RESUME_GRACE: Duration = Duration::from_secs(30);
 
 fn drift() -> f64 {
     let get = |clk| {
-        let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        let mut ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
         // SAFETY: valid pointer to a timespec; clock ids are constants.
         unsafe { libc::clock_gettime(clk, &mut ts) };
         ts.tv_sec as f64 + ts.tv_nsec as f64 / 1e9
@@ -192,12 +207,26 @@ impl Engine {
         let interval = self.cfg.interval_for(&server);
         let due = Instant::now() + jitter(&server.name, interval);
         let host = server.host.clone();
-        self.slots.push(Slot { server, tracker: t, generation, due, inflight: false, host });
+        self.slots.push(Slot {
+            server,
+            tracker: t,
+            generation,
+            due,
+            inflight: false,
+            host,
+        });
     }
 
     pub fn run(mut self) {
         let now_u = util::now_unix();
-        self.history.record_event(&Event { ts: now_u, server: String::new(), kind: EventKind::Started, message: "svmonitor started".into(), key: String::new(), notify: false });
+        self.history.record_event(&Event {
+            ts: now_u,
+            server: String::new(),
+            kind: EventKind::Started,
+            message: "svmonitor started".into(),
+            key: String::new(),
+            notify: false,
+        });
         self.publish(true);
         loop {
             self.detect_resume();
@@ -235,7 +264,10 @@ impl Engine {
             }
         }
         if let Some(g) = self.grace_until {
-            wait = wait.min(g.saturating_duration_since(now).max(Duration::from_millis(50)));
+            wait = wait.min(
+                g.saturating_duration_since(now)
+                    .max(Duration::from_millis(50)),
+            );
         }
         wait
     }
@@ -259,7 +291,11 @@ impl Engine {
     fn dispatch(&mut self) {
         let now = Instant::now();
         let max = self.cfg.general.max_parallel_probes;
-        let mut order: Vec<usize> = (0..self.slots.len()).filter(|&i| self.slots[i].tracker.enabled && !self.slots[i].inflight && self.slots[i].due <= now).collect();
+        let mut order: Vec<usize> = (0..self.slots.len())
+            .filter(|&i| {
+                self.slots[i].tracker.enabled && !self.slots[i].inflight && self.slots[i].due <= now
+            })
+            .collect();
         order.sort_by_key(|&i| self.slots[i].due);
         for i in order {
             if self.inflight >= max {
@@ -287,35 +323,64 @@ impl Engine {
         let check_ts = g.check_tailscale;
         let cache = self.ts_cache.clone();
         let tx = self.tx.clone();
-        let spawn = std::thread::Builder::new().name("svm-probe".into()).stack_size(256 * 1024).spawn({
-            let name = name.clone();
-            move || {
-                let host = known_host.or_else(|| sshconfig::resolve(&spec.ssh_bin, &spec.server.name).map(|r| r.hostname));
-                let ts = match (&host, check_ts) {
-                    (Some(h), true) => tailscale::classify(h, &cache.get()),
-                    _ => TsState::NotApplicable,
-                };
-                let outcome = if ts.is_local_problem() {
-                    Outcome::Fail { kind: FailKind::Timeout, detail: String::new() }
-                } else {
-                    match probe::run(&spec, util::now_unix()) {
-                        ProbeResult::Ok(s) => Outcome::Ok(s),
-                        ProbeResult::Fail { kind, detail } => Outcome::Fail { kind, detail },
-                    }
-                };
-                let _ = tx.send(Cmd::ProbeDone { name, generation, host, ts, outcome });
-            }
-        });
+        let spawn = std::thread::Builder::new()
+            .name("svm-probe".into())
+            .stack_size(256 * 1024)
+            .spawn({
+                let name = name.clone();
+                move || {
+                    let host = known_host.or_else(|| {
+                        sshconfig::resolve(&spec.ssh_bin, &spec.server.name).map(|r| r.hostname)
+                    });
+                    let ts = match (&host, check_ts) {
+                        (Some(h), true) => tailscale::classify(h, &cache.get()),
+                        _ => TsState::NotApplicable,
+                    };
+                    let outcome = if ts.is_local_problem() {
+                        Outcome::Fail {
+                            kind: FailKind::Timeout,
+                            detail: String::new(),
+                        }
+                    } else {
+                        match probe::run(&spec, util::now_unix()) {
+                            ProbeResult::Ok(s) => Outcome::Ok(s),
+                            ProbeResult::Fail { kind, detail } => Outcome::Fail { kind, detail },
+                        }
+                    };
+                    let _ = tx.send(Cmd::ProbeDone {
+                        name,
+                        generation,
+                        host,
+                        ts,
+                        outcome,
+                    });
+                }
+            });
         if spawn.is_err() {
             // Out of threads: report as a failure of this probe so scheduling continues.
-            let _ = self.tx.send(Cmd::ProbeDone { name, generation, host: None, ts: TsState::Unknown, outcome: Outcome::Fail { kind: FailKind::Spawn, detail: "cannot start probe thread".into() } });
+            let _ = self.tx.send(Cmd::ProbeDone {
+                name,
+                generation,
+                host: None,
+                ts: TsState::Unknown,
+                outcome: Outcome::Fail {
+                    kind: FailKind::Spawn,
+                    detail: "cannot start probe thread".into(),
+                },
+            });
         }
     }
 
     /// Returns false to stop.
     fn handle(&mut self, cmd: Cmd) -> bool {
         match cmd {
-            Cmd::ProbeDone { name, generation, host, ts, outcome } => self.on_probe_done(&name, generation, host, ts, outcome),
+            Cmd::ProbeDone {
+                name,
+                generation,
+                host,
+                ts,
+                outcome,
+            } => self.on_probe_done(&name, generation, host, ts, outcome),
             Cmd::CheckNow(name) => {
                 let now = Instant::now();
                 for s in &mut self.slots {
@@ -354,8 +419,19 @@ impl Engine {
         true
     }
 
-    fn on_probe_done(&mut self, name: &str, generation: u64, host: Option<String>, ts: TsState, outcome: Outcome) {
-        let Some(i) = self.slots.iter().position(|s| s.server.name == name && s.generation == generation) else {
+    fn on_probe_done(
+        &mut self,
+        name: &str,
+        generation: u64,
+        host: Option<String>,
+        ts: TsState,
+        outcome: Outcome,
+    ) {
+        let Some(i) = self
+            .slots
+            .iter()
+            .position(|s| s.server.name == name && s.generation == generation)
+        else {
             // Removed or replaced while in flight.
             self.inflight = self.inflight.saturating_sub(1);
             return;
@@ -384,11 +460,23 @@ impl Engine {
                 return;
             }
         }
-        let ctx = Context { now: now_u, ts, local_net_ok: self.local_net_ok };
-        let events = slot.tracker.apply(outcome, &ctx, &self.cfg.thresholds, &self.cfg.general);
+        let ctx = Context {
+            now: now_u,
+            ts,
+            local_net_ok: self.local_net_ok,
+        };
+        let events = slot
+            .tracker
+            .apply(outcome, &ctx, &self.cfg.thresholds, &self.cfg.general);
         let interval = self.cfg.interval_for(&slot.server);
         let delay = slot.tracker.next_delay(&self.cfg.general, interval);
-        slot.due = Instant::now() + Duration::from_secs(delay) + if delay >= interval { jitter(&slot.server.name, interval) } else { Duration::ZERO };
+        slot.due = Instant::now()
+            + Duration::from_secs(delay)
+            + if delay >= interval {
+                jitter(&slot.server.name, interval)
+            } else {
+                Duration::ZERO
+            };
         if slot.tracker.ssh == SshState::Available {
             if let Some(m) = &slot.tracker.metrics {
                 self.history.record_sample(&slot.server.name, m);
@@ -405,7 +493,11 @@ impl Engine {
             }
             let muted = util::now_unix() < self.muted_until;
             if let Some(n) = &self.notifier {
-                if !muted && self.limiter.allow(&e, self.cfg.general.notify_cooldown_secs) {
+                if !muted
+                    && self
+                        .limiter
+                        .allow(&e, self.cfg.general.notify_cooldown_secs)
+                {
                     n.show(notify::toast_for(&e));
                 }
             }
@@ -473,7 +565,8 @@ impl Engine {
         }
         self.cfg = new;
         let wanted = self.cfg.servers.clone();
-        self.slots.retain(|s| wanted.iter().any(|w| w.name == s.server.name));
+        self.slots
+            .retain(|s| wanted.iter().any(|w| w.name == s.server.name));
         for w in wanted {
             match self.slots.iter().position(|s| s.server.name == w.name) {
                 Some(i) => {
@@ -500,8 +593,17 @@ impl Engine {
         }
         // keep config order
         let order: Vec<&str> = self.cfg.servers.iter().map(|s| s.name.as_str()).collect();
-        self.slots.sort_by_key(|s| order.iter().position(|n| *n == s.server.name).unwrap_or(usize::MAX));
-        self.history = History::new(self.paths.events(), self.paths.samples(), self.cfg.general.keep_samples);
+        self.slots.sort_by_key(|s| {
+            order
+                .iter()
+                .position(|n| *n == s.server.name)
+                .unwrap_or(usize::MAX)
+        });
+        self.history = History::new(
+            self.paths.events(),
+            self.paths.samples(),
+            self.cfg.general.keep_samples,
+        );
     }
 
     pub fn snapshot(&self) -> Snapshot {
@@ -510,14 +612,22 @@ impl Engine {
             pid: std::process::id(),
             local_net_ok: self.local_net_ok,
             muted: util::now_unix() < self.muted_until,
-            servers: self.slots.iter().map(|s| s.tracker.view(&self.cfg.general, s.inflight)).collect(),
+            servers: self
+                .slots
+                .iter()
+                .map(|s| s.tracker.view(&self.cfg.general, s.inflight))
+                .collect(),
         }
     }
 
     fn publish(&mut self, force: bool) {
         let snap = self.snapshot();
         let changed = match &self.last_published {
-            Some(p) => p.servers != snap.servers || p.muted != snap.muted || p.local_net_ok != snap.local_net_ok,
+            Some(p) => {
+                p.servers != snap.servers
+                    || p.muted != snap.muted
+                    || p.local_net_ok != snap.local_net_ok
+            }
             None => true,
         };
         if !(changed || force) {

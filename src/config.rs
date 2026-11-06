@@ -67,7 +67,14 @@ pub struct Thresholds {
 
 impl Default for Thresholds {
     fn default() -> Self {
-        Thresholds { cpu_pct: 95.0, mem_pct: 92.0, swap_pct: 80.0, disk_pct: 90.0, load_per_core: 4.0, samples: 3 }
+        Thresholds {
+            cpu_pct: 95.0,
+            mem_pct: 92.0,
+            swap_pct: 80.0,
+            disk_pct: 90.0,
+            load_per_core: 4.0,
+            samples: 3,
+        }
     }
 }
 
@@ -98,7 +105,15 @@ fn yes() -> bool {
 
 impl Server {
     pub fn alias(name: &str) -> Server {
-        Server { name: name.into(), enabled: true, host: None, user: None, port: None, identity_file: None, interval_secs: None }
+        Server {
+            name: name.into(),
+            enabled: true,
+            host: None,
+            user: None,
+            port: None,
+            identity_file: None,
+            interval_secs: None,
+        }
     }
     pub fn is_manual(&self) -> bool {
         self.host.is_some()
@@ -130,9 +145,16 @@ impl Server {
     }
     pub fn validate(&self) -> Result<()> {
         validate_name(&self.name)?;
-        for (label, v) in [("host", self.host.as_deref()), ("user", self.user.as_deref())] {
+        for (label, v) in [
+            ("host", self.host.as_deref()),
+            ("user", self.user.as_deref()),
+        ] {
             if let Some(v) = v {
-                if v.is_empty() || v.starts_with('-') || v.chars().any(|c| c.is_whitespace() || c.is_control() || c == '@' && label == "host") {
+                if v.is_empty()
+                    || v.starts_with('-')
+                    || v.chars()
+                        .any(|c| c.is_whitespace() || c.is_control() || c == '@' && label == "host")
+                {
                     bail!("invalid {label}: {v:?}");
                 }
             }
@@ -154,7 +176,14 @@ pub fn validate_name(n: &str) -> Result<()> {
     if n.starts_with('-') {
         bail!("server name must not start with '-'");
     }
-    if n.chars().any(|c| c.is_whitespace() || c.is_control() || matches!(c, '"' | '\'' | '\\' | '`' | '$' | ';' | '&' | '|' | '<' | '>' | '*' | '?' | '!')) {
+    if n.chars().any(|c| {
+        c.is_whitespace()
+            || c.is_control()
+            || matches!(
+                c,
+                '"' | '\'' | '\\' | '`' | '$' | ';' | '&' | '|' | '<' | '>' | '*' | '?' | '!'
+            )
+    }) {
         bail!("server name contains unsupported characters: {n:?}");
     }
     Ok(())
@@ -245,7 +274,11 @@ impl Paths {
             // SAFETY: getuid has no preconditions.
             _ => PathBuf::from(format!("/tmp/svmonitor-{}", unsafe { libc::getuid() })),
         };
-        Paths { config: cfg.join("config.toml"), state_dir: state, runtime_dir: run }
+        Paths {
+            config: cfg.join("config.toml"),
+            state_dir: state,
+            runtime_dir: run,
+        }
     }
     pub fn events(&self) -> PathBuf {
         self.state_dir.join("events.jsonl")
@@ -276,7 +309,8 @@ pub fn save(path: &Path, cfg: &Config) -> Result<()> {
     cfg.validate()?;
     let text = toml::to_string_pretty(cfg).context("serialising config")?;
     let header = "# SVMonitor configuration. Servers reference SSH aliases from ~/.ssh/config.\n# No passwords or keys are stored here.\n\n";
-    atomic_write(path, format!("{header}{text}").as_bytes()).with_context(|| format!("writing {}", path.display()))
+    atomic_write(path, format!("{header}{text}").as_bytes())
+        .with_context(|| format!("writing {}", path.display()))
 }
 
 #[cfg(test)]
@@ -287,7 +321,13 @@ mod tests {
     fn defaults_valid_and_roundtrip() {
         let mut c = Config::default();
         c.add(Server::alias("catplus")).unwrap();
-        c.add(Server { host: Some("10.0.0.1".into()), user: Some("root".into()), port: Some(2200), ..Server::alias("manual") }).unwrap();
+        c.add(Server {
+            host: Some("10.0.0.1".into()),
+            user: Some("root".into()),
+            port: Some(2200),
+            ..Server::alias("manual")
+        })
+        .unwrap();
         let d = tempfile::tempdir().unwrap();
         let p = d.path().join("c/config.toml");
         save(&p, &c).unwrap();
@@ -296,7 +336,10 @@ mod tests {
 
     #[test]
     fn missing_file_gives_defaults() {
-        assert_eq!(load(Path::new("/nonexistent/x.toml")).unwrap(), Config::default());
+        assert_eq!(
+            load(Path::new("/nonexistent/x.toml")).unwrap(),
+            Config::default()
+        );
     }
 
     #[test]
@@ -323,7 +366,13 @@ mod tests {
         let a = Server::alias("web");
         assert_eq!(a.destination(), "web");
         assert!(a.extra_args().is_empty());
-        let m = Server { host: Some("h".into()), user: Some("u".into()), port: Some(22), identity_file: Some("/k".into()), ..Server::alias("m") };
+        let m = Server {
+            host: Some("h".into()),
+            user: Some("u".into()),
+            port: Some(22),
+            identity_file: Some("/k".into()),
+            ..Server::alias("m")
+        };
         assert_eq!(m.destination(), "u@h");
         assert_eq!(m.extra_args(), vec!["-p", "22", "-i", "/k"]);
     }
@@ -331,7 +380,11 @@ mod tests {
     #[test]
     fn per_server_interval() {
         let mut c = Config::default();
-        c.add(Server { interval_secs: Some(120), ..Server::alias("a") }).unwrap();
+        c.add(Server {
+            interval_secs: Some(120),
+            ..Server::alias("a")
+        })
+        .unwrap();
         assert_eq!(c.interval_for(&c.servers[0]), 120);
         c.add(Server::alias("b")).unwrap();
         assert_eq!(c.interval_for(&c.servers[1]), 60);

@@ -1,0 +1,44 @@
+# Maintainer: SVMonitor contributors
+# Build from a local checkout:  cd packaging/arch && makepkg -si
+pkgname=svmonitor
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Lightweight SSH server monitor with system tray (no agents on servers)'
+arch=('x86_64' 'aarch64')
+url='https://github.com/svmonitor/svmonitor'
+license=('MIT')
+depends=('openssh' 'gcc-libs' 'glibc')
+makedepends=('cargo')
+optdepends=('tailscale: Tailscale peer awareness'
+            'gnome-shell-extension-appindicator: tray icon on GNOME')
+source=()
+# Local build: the tarball is created from the repository this PKGBUILD lives in.
+_repo="$(cd "$startdir/../.." && pwd)"
+
+prepare() {
+  rm -rf "$srcdir/$pkgname"
+  mkdir -p "$srcdir/$pkgname"
+  (cd "$_repo" && tar --exclude=./target --exclude=./.git --exclude='./packaging/*/src' --exclude='./packaging/*/pkg' -cf - .) | tar -xf - -C "$srcdir/$pkgname"
+}
+
+build() {
+  cd "$srcdir/$pkgname"
+  export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
+  cargo build --frozen --release 2>/dev/null || cargo build --release
+}
+
+check() {
+  cd "$srcdir/$pkgname"
+  cargo test --release --lib 2>&1 | tail -3
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+  install -Dm755 target/release/svmonitor "$pkgdir/usr/bin/svmonitor"
+  install -Dm644 data/svmonitor.desktop "$pkgdir/usr/share/applications/svmonitor.desktop"
+  install -Dm644 data/svmonitor.service "$pkgdir/usr/lib/systemd/user/svmonitor.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 docs/USAGE.md "$pkgdir/usr/share/doc/$pkgname/USAGE.md"
+  install -Dm644 docs/config.example.toml "$pkgdir/usr/share/doc/$pkgname/config.example.toml"
+}

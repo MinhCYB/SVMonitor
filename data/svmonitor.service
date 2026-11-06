@@ -1,0 +1,20 @@
+[Unit]
+Description=SVMonitor server monitor
+Documentation=https://github.com/svmonitor/svmonitor
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/svmonitor run
+Restart=on-failure
+RestartSec=10
+# Hardening limited to options that do not need a user namespace. Namespace sandboxing
+# (ProtectSystem/ProtectHome/PrivateTmp) was tested and BREAKS ssh: root-owned /etc/ssh files appear
+# as owned by "nobody" and OpenSSH refuses them ("Bad owner or permissions").
+NoNewPrivileges=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=graphical-session.target

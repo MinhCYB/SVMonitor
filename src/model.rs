@@ -63,7 +63,11 @@ impl FailKind {
     pub fn is_connectivity(self) -> bool {
         matches!(
             self,
-            FailKind::Timeout | FailKind::Refused | FailKind::NoRoute | FailKind::Reset | FailKind::Other
+            FailKind::Timeout
+                | FailKind::Refused
+                | FailKind::NoRoute
+                | FailKind::Reset
+                | FailKind::Other
         )
     }
     pub fn label(self) -> &'static str {
@@ -83,10 +87,14 @@ impl FailKind {
     pub fn hint(self) -> Option<&'static str> {
         match self {
             FailKind::Auth => Some("Check the key / ssh-agent; test with `ssh <alias>`"),
-            FailKind::HostKey => Some("Run `ssh <alias>` once in a terminal to verify the host key"),
+            FailKind::HostKey => {
+                Some("Run `ssh <alias>` once in a terminal to verify the host key")
+            }
             FailKind::Dns => Some("Check DNS / Tailscale MagicDNS on this machine"),
             FailKind::Spawn => Some("Install OpenSSH client or set general.ssh_binary"),
-            FailKind::Remote => Some("Remote login shell must run POSIX `sh -s`; check ~/.ssh/config RemoteCommand/ForceCommand"),
+            FailKind::Remote => Some(
+                "Remote login shell must run POSIX `sh -s`; check ~/.ssh/config RemoteCommand/ForceCommand",
+            ),
             _ => None,
         }
     }
@@ -167,7 +175,11 @@ pub struct Metrics {
 }
 
 pub fn pct(used: u64, total: u64) -> f32 {
-    if total == 0 { 0.0 } else { (used as f64 * 100.0 / total as f64) as f32 }
+    if total == 0 {
+        0.0
+    } else {
+        (used as f64 * 100.0 / total as f64) as f32
+    }
 }
 
 impl Metrics {
@@ -178,9 +190,11 @@ impl Metrics {
         (self.swap_total_kib > 0).then(|| pct(self.swap_used_kib, self.swap_total_kib))
     }
     pub fn worst_disk(&self) -> Option<&DiskUsage> {
-        self.disks
-            .iter()
-            .max_by(|a, b| a.pct().partial_cmp(&b.pct()).unwrap_or(std::cmp::Ordering::Equal))
+        self.disks.iter().max_by(|a, b| {
+            a.pct()
+                .partial_cmp(&b.pct())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     }
     /// 1-minute load divided by core count (falls back to raw load if cores unknown).
     pub fn load_per_core(&self) -> f32 {

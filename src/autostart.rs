@@ -13,8 +13,19 @@ pub fn autostart_path() -> PathBuf {
 
 fn quote_exec(p: &str) -> String {
     // Desktop Entry spec: quote args containing spaces/specials, escape " ` $ \ inside quotes.
-    if p.chars().any(|c| c.is_whitespace() || "\"'\\><~|&;$*?#()`".contains(c)) {
-        let esc: String = p.chars().flat_map(|c| if "\"`$\\".contains(c) { vec!['\\', c] } else { vec![c] }).collect();
+    if p.chars()
+        .any(|c| c.is_whitespace() || "\"'\\><~|&;$*?#()`".contains(c))
+    {
+        let esc: String = p
+            .chars()
+            .flat_map(|c| {
+                if "\"`$\\".contains(c) {
+                    vec!['\\', c]
+                } else {
+                    vec![c]
+                }
+            })
+            .collect();
         format!("\"{esc}\"")
     } else {
         p.to_string()
@@ -29,7 +40,8 @@ pub fn desktop_entry(exe: &str, delay_secs: u32) -> String {
 }
 
 pub fn enable(path: &Path, exe: &str) -> Result<()> {
-    atomic_write(path, desktop_entry(exe, 5).as_bytes()).with_context(|| format!("writing {}", path.display()))
+    atomic_write(path, desktop_entry(exe, 5).as_bytes())
+        .with_context(|| format!("writing {}", path.display()))
 }
 
 pub fn disable(path: &Path) -> Result<bool> {

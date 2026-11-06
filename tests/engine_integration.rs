@@ -32,7 +32,11 @@ fn mode(dir: &Path, m: &str) {
 fn start(servers: &[&str], tweak: impl FnOnce(&mut Config)) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let fake = dir.path().join("fake-ssh");
-    std::fs::write(&fake, FAKE.replace("@MODE_FILE@", dir.path().join("mode").to_str().unwrap())).unwrap();
+    std::fs::write(
+        &fake,
+        FAKE.replace("@MODE_FILE@", dir.path().join("mode").to_str().unwrap()),
+    )
+    .unwrap();
     std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).unwrap();
     mode(dir.path(), "ok");
     let mut cfg = Config::default();
@@ -50,11 +54,19 @@ fn start(servers: &[&str], tweak: impl FnOnce(&mut Config)) -> Rig {
         cfg.add(sv).unwrap();
     }
     tweak(&mut cfg);
-    let paths = Paths { config: dir.path().join("config.toml"), state_dir: dir.path().join("state"), runtime_dir: dir.path().join("run") };
+    let paths = Paths {
+        config: dir.path().join("config.toml"),
+        state_dir: dir.path().join("state"),
+        runtime_dir: dir.path().join("run"),
+    };
     let (engine, handle) = Engine::new(cfg, paths, false);
     let engine = engine.without_persistence();
     let thread = Some(std::thread::spawn(move || engine.run()));
-    Rig { handle, dir, thread }
+    Rig {
+        handle,
+        dir,
+        thread,
+    }
 }
 
 impl Rig {
@@ -66,7 +78,12 @@ impl Rig {
             if v.overall == want {
                 return v;
             }
-            assert!(Instant::now() < end, "timed out waiting for {want:?}, last {:?} detail={:?}", v.overall, v.detail);
+            assert!(
+                Instant::now() < end,
+                "timed out waiting for {want:?}, last {:?} detail={:?}",
+                v.overall,
+                v.detail
+            );
             std::thread::sleep(Duration::from_millis(100));
         }
     }
@@ -109,7 +126,12 @@ fn outage_is_debounced_then_reported_then_recovers_once() {
     r.mode("ok");
     r.handle.check_now(Some("a"));
     r.wait("a", Overall::Online, 15);
-    let kinds: Vec<_> = r.events().iter().map(|e| e.kind).filter(|k| matches!(k, EventKind::Down | EventKind::Recovered)).collect();
+    let kinds: Vec<_> = r
+        .events()
+        .iter()
+        .map(|e| e.kind)
+        .filter(|k| matches!(k, EventKind::Down | EventKind::Recovered))
+        .collect();
     assert_eq!(kinds, vec![EventKind::Down, EventKind::Recovered]);
 }
 
@@ -130,7 +152,11 @@ fn hung_ssh_is_killed_at_deadline() {
     r.mode("hang");
     let t = Instant::now();
     r.wait("a", Overall::Down, 15);
-    assert!(t.elapsed() < Duration::from_secs(8), "took {:?}", t.elapsed());
+    assert!(
+        t.elapsed() < Duration::from_secs(8),
+        "took {:?}",
+        t.elapsed()
+    );
 }
 
 #[test]
@@ -157,7 +183,14 @@ fn add_and_remove_at_runtime() {
     assert!(r.handle.add(s).is_err(), "duplicate rejected");
     r.wait("c", Overall::Online, 10);
     r.handle.remove("c").unwrap();
-    assert!(r.handle.snapshot().unwrap().servers.iter().all(|s| s.name != "c"));
+    assert!(
+        r.handle
+            .snapshot()
+            .unwrap()
+            .servers
+            .iter()
+            .all(|s| s.name != "c")
+    );
     assert!(r.handle.add(Server::alias("-oProxyCommand=evil")).is_err());
 }
 
@@ -169,6 +202,13 @@ fn never_more_than_max_parallel_probes() {
     });
     r.mode("hang");
     std::thread::sleep(Duration::from_millis(1500));
-    let probing = r.handle.snapshot().unwrap().servers.iter().filter(|s| s.probing).count();
+    let probing = r
+        .handle
+        .snapshot()
+        .unwrap()
+        .servers
+        .iter()
+        .filter(|s| s.probing)
+        .count();
     assert_eq!(probing, 1);
 }

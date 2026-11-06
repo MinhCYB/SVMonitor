@@ -1,0 +1,39 @@
+# ~/.config/svmonitor/config.toml  (all keys optional except server names)
+# SVMonitor never stores passwords or keys; servers refer to aliases in ~/.ssh/config.
+
+[general]
+ssh_binary = "ssh"
+interval_secs = 60            # healthy server poll interval (min 5)
+probe_timeout_secs = 20       # hard kill deadline for one ssh probe
+connect_timeout_secs = 10     # ssh ConnectTimeout
+failure_threshold = 3         # consecutive failures before "unreachable" (debounce)
+retry_interval_secs = 10      # retry spacing while failures are pending
+down_interval_max_secs = 300  # backoff cap while a server is down
+max_parallel_probes = 4
+check_tailscale = true        # classify tailnet hosts via the local tailscaled socket
+notifications = true
+notify_cooldown_secs = 900    # same event kind for same server at most every 15 min
+terminal = ""                 # "" = auto-detect; e.g. "kitty", "alacritty", "gnome-terminal"
+history_max_events = 2000
+keep_samples = true           # also write samples.jsonl (one line per poll)
+
+[thresholds]                  # resource alerts (need `samples` consecutive polls)
+cpu_pct = 95.0
+mem_pct = 92.0
+swap_pct = 80.0
+disk_pct = 90.0
+load_per_core = 4.0
+samples = 3
+
+[[server]]
+name = "catplus"              # an alias from ~/.ssh/config
+
+# Manual server (no alias): connect to host directly.
+# [[server]]
+# name = "scratch-box"
+# host = "203.0.113.10"
+# user = "deploy"
+# port = 2222
+# identity_file = "~/.ssh/id_ed25519"   # a path only
+# interval_secs = 120
+# enabled = true

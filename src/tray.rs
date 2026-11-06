@@ -14,7 +14,13 @@ pub fn watcher_present() -> bool {
         .ok()
         .and_then(|c| {
             let r = c
-                .call_method(Some("org.freedesktop.DBus"), "/org/freedesktop/DBus", Some("org.freedesktop.DBus"), "NameHasOwner", &("org.kde.StatusNotifierWatcher",))
+                .call_method(
+                    Some("org.freedesktop.DBus"),
+                    "/org/freedesktop/DBus",
+                    Some("org.freedesktop.DBus"),
+                    "NameHasOwner",
+                    &("org.kde.StatusNotifierWatcher",),
+                )
                 .ok()?;
             r.body().deserialize::<bool>().ok()
         })
@@ -40,7 +46,10 @@ pub struct PathsOwned {
 
 impl PathsOwned {
     pub fn from(p: &Paths) -> PathsOwned {
-        PathsOwned { config: p.config.clone(), events: p.events() }
+        PathsOwned {
+            config: p.config.clone(),
+            events: p.events(),
+        }
     }
 }
 
@@ -49,12 +58,21 @@ impl SvTray {
         SvTray {
             engine,
             paths: PathsOwned::from(paths),
-            snap: Snapshot { ts: 0, pid: std::process::id(), local_net_ok: true, muted: false, servers: vec![] },
+            snap: Snapshot {
+                ts: 0,
+                pid: std::process::id(),
+                local_net_ok: true,
+                muted: false,
+                servers: vec![],
+            },
             cfg,
             discovered: vec![],
             recent: vec![],
             autostart_on: false,
-            exe: std::env::current_exe().ok().and_then(|p| p.to_str().map(String::from)).unwrap_or_else(|| "svmonitor".into()),
+            exe: std::env::current_exe()
+                .ok()
+                .and_then(|p| p.to_str().map(String::from))
+                .unwrap_or_else(|| "svmonitor".into()),
         }
     }
 
@@ -62,7 +80,12 @@ impl SvTray {
         if let Ok(c) = config::load(&self.paths.config) {
             self.cfg = c;
         }
-        self.discovered = sshconfig::default_config_path().map(|p| sshconfig::discover(&p)).unwrap_or_default().into_iter().filter(|h| self.cfg.server(h).is_none()).collect();
+        self.discovered = sshconfig::default_config_path()
+            .map(|p| sshconfig::discover(&p))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|h| self.cfg.server(h).is_none())
+            .collect();
         self.recent = history::read_events(&self.paths.events, None, 400);
         self.autostart_on = autostart::is_enabled(&autostart::autostart_path());
     }
@@ -104,10 +127,19 @@ pub fn dot_icon(size: i32, rgb: (u8, u8, u8)) -> Icon {
             let ring = (d - (r_in - 0.5)).clamp(0.0, 1.0);
             let k = 1.0 - 0.35 * ring;
             let a = (cover * 255.0) as u8;
-            data.extend_from_slice(&[a, (rgb.0 as f32 * k) as u8, (rgb.1 as f32 * k) as u8, (rgb.2 as f32 * k) as u8]);
+            data.extend_from_slice(&[
+                a,
+                (rgb.0 as f32 * k) as u8,
+                (rgb.1 as f32 * k) as u8,
+                (rgb.2 as f32 * k) as u8,
+            ]);
         }
     }
-    Icon { width: size, height: size, data }
+    Icon {
+        width: size,
+        height: size,
+        data,
+    }
 }
 
 pub fn tooltip_text(s: &Snapshot) -> String {
@@ -118,29 +150,54 @@ pub fn tooltip_text(s: &Snapshot) -> String {
         .iter()
         .map(|v| {
             let extra = match (&v.metrics, v.overall) {
-                (Some(m), Overall::Online | Overall::Warning) => format!(" — CPU {} · RAM {:.0}%", m.cpu_pct.map(|c| format!("{c:.0}%")).unwrap_or_else(|| "–".into()), m.mem_pct()),
+                (Some(m), Overall::Online | Overall::Warning) => format!(
+                    " — CPU {} · RAM {:.0}%",
+                    m.cpu_pct
+                        .map(|c| format!("{c:.0}%"))
+                        .unwrap_or_else(|| "–".into()),
+                    m.mem_pct()
+                ),
                 _ if !v.detail.is_empty() => format!(" — {}", v.detail),
                 _ => String::new(),
             };
-            format!("{} {}: {}{}", marker(v.overall), v.name, v.overall.label(), extra)
+            format!(
+                "{} {}: {}{}",
+                marker(v.overall),
+                v.name,
+                v.overall.label(),
+                extra
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 fn info(label: String) -> MenuItem<SvTray> {
-    StandardItem { label, enabled: false, ..Default::default() }.into()
+    StandardItem {
+        label,
+        enabled: false,
+        ..Default::default()
+    }
+    .into()
 }
 
 fn action(label: &str, f: impl Fn(&mut SvTray) + Send + 'static) -> MenuItem<SvTray> {
-    StandardItem { label: label.into(), activate: Box::new(f), ..Default::default() }.into()
+    StandardItem {
+        label: label.into(),
+        activate: Box::new(f),
+        ..Default::default()
+    }
+    .into()
 }
 
 pub fn detail_lines(v: &ServerView, now: i64) -> Vec<String> {
     let mut out = Vec::new();
     let mut status = format!("Status: {}", v.overall.label());
     if v.pending_failures > 0 {
-        status += &format!(" ({}/{} failed checks)", v.pending_failures, v.failure_threshold);
+        status += &format!(
+            " ({}/{} failed checks)",
+            v.pending_failures, v.failure_threshold
+        );
     }
     if let (Overall::Down, Some(d)) = (v.overall, v.down_since) {
         status += &format!(" for {}", fmt_duration((now - d).max(0) as u64));
@@ -149,28 +206,56 @@ pub fn detail_lines(v: &ServerView, now: i64) -> Vec<String> {
     if !v.detail.is_empty() && v.overall != Overall::Online {
         out.push(format!("Detail: {}", v.detail));
     }
-    out.push(format!("SSH: {}", match v.ssh {
-        SshState::Unknown => "unknown".to_string(),
-        SshState::Available => "available".to_string(),
-        SshState::Unavailable(k) => format!("unavailable ({})", k.label()),
-    }));
+    out.push(format!(
+        "SSH: {}",
+        match v.ssh {
+            SshState::Unknown => "unknown".to_string(),
+            SshState::Available => "available".to_string(),
+            SshState::Unavailable(k) => format!("unavailable ({})", k.label()),
+        }
+    ));
     out.push(format!("Tailscale: {}", v.tailscale.label()));
     if let Some(m) = &v.metrics {
         if v.ssh == SshState::Available || v.overall == Overall::Down {
-            let stale = if v.ssh == SshState::Available { "" } else { " (last known)" };
+            let stale = if v.ssh == SshState::Available {
+                ""
+            } else {
+                " (last known)"
+            };
             if let Some(c) = m.cpu_pct {
-                out.push(format!("CPU: {c:.0}%{stale}  ({} cores)", m.cores.unwrap_or(0)));
+                out.push(format!(
+                    "CPU: {c:.0}%{stale}  ({} cores)",
+                    m.cores.unwrap_or(0)
+                ));
             } else {
                 out.push(format!("CPU: –  ({} cores){stale}", m.cores.unwrap_or(0)));
             }
-            out.push(format!("RAM: {:.0}%  {} / {}", m.mem_pct(), fmt_kib(m.mem_used_kib), fmt_kib(m.mem_total_kib)));
+            out.push(format!(
+                "RAM: {:.0}%  {} / {}",
+                m.mem_pct(),
+                fmt_kib(m.mem_used_kib),
+                fmt_kib(m.mem_total_kib)
+            ));
             if let Some(sp) = m.swap_pct() {
-                out.push(format!("Swap: {sp:.0}%  {} / {}", fmt_kib(m.swap_used_kib), fmt_kib(m.swap_total_kib)));
+                out.push(format!(
+                    "Swap: {sp:.0}%  {} / {}",
+                    fmt_kib(m.swap_used_kib),
+                    fmt_kib(m.swap_total_kib)
+                ));
             }
             if let Some(d) = m.worst_disk() {
-                out.push(format!("Disk {}: {:.0}%  {} / {}", d.mount, d.pct(), fmt_kib(d.used_kib), fmt_kib(d.total_kib)));
+                out.push(format!(
+                    "Disk {}: {:.0}%  {} / {}",
+                    d.mount,
+                    d.pct(),
+                    fmt_kib(d.used_kib),
+                    fmt_kib(d.total_kib)
+                ));
             }
-            out.push(format!("Load: {:.2} {:.2} {:.2}", m.load[0], m.load[1], m.load[2]));
+            out.push(format!(
+                "Load: {:.2} {:.2} {:.2}",
+                m.load[0], m.load[1], m.load[2]
+            ));
             out.push(format!("Uptime: {}", fmt_duration(m.uptime_secs)));
             if let Some(os) = &m.os {
                 out.push(format!("OS: {os}"));
@@ -206,10 +291,22 @@ impl ksni::Tray for SvTray {
         vec![dot_icon(22, c), dot_icon(32, c), dot_icon(48, c)]
     }
     fn attention_icon_pixmap(&self) -> Vec<Icon> {
-        vec![dot_icon(22, color(Overall::Down)), dot_icon(32, color(Overall::Down))]
+        vec![
+            dot_icon(22, color(Overall::Down)),
+            dot_icon(32, color(Overall::Down)),
+        ]
     }
     fn tool_tip(&self) -> ToolTip {
-        ToolTip { title: format!("SVMonitor — {}/{} online", self.snap.count_online(), self.snap.count_enabled()), description: tooltip_text(&self.snap), icon_name: String::new(), icon_pixmap: vec![] }
+        ToolTip {
+            title: format!(
+                "SVMonitor — {}/{} online",
+                self.snap.count_online(),
+                self.snap.count_enabled()
+            ),
+            description: tooltip_text(&self.snap),
+            icon_name: String::new(),
+            icon_pixmap: vec![],
+        }
     }
     fn menu_about_to_show(&mut self) {
         self.refresh_menu_data();
@@ -221,17 +318,33 @@ impl ksni::Tray for SvTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let now = crate::util::now_unix();
         let mut m: Vec<MenuItem<Self>> = Vec::new();
-        let header = if self.snap.servers.is_empty() { "SVMonitor — no servers yet".to_string() } else { format!("SVMonitor — {}/{} online", self.snap.count_online(), self.snap.count_enabled()) };
+        let header = if self.snap.servers.is_empty() {
+            "SVMonitor — no servers yet".to_string()
+        } else {
+            format!(
+                "SVMonitor — {}/{} online",
+                self.snap.count_online(),
+                self.snap.count_enabled()
+            )
+        };
         m.push(info(header));
         if !self.snap.local_net_ok {
-            m.push(info("⚠ This machine has no network route; server alerts paused".into()));
+            m.push(info(
+                "⚠ This machine has no network route; server alerts paused".into(),
+            ));
         }
         m.push(MenuItem::Separator);
 
         for v in &self.snap.servers {
             let name = v.name.clone();
             let mut sub: Vec<MenuItem<Self>> = detail_lines(v, now).into_iter().map(info).collect();
-            let recent: Vec<&Event> = self.recent.iter().rev().filter(|e| e.server == v.name && !matches!(e.kind, EventKind::Started)).take(5).collect();
+            let recent: Vec<&Event> = self
+                .recent
+                .iter()
+                .rev()
+                .filter(|e| e.server == v.name && !matches!(e.kind, EventKind::Started))
+                .take(5)
+                .collect();
             if !recent.is_empty() {
                 sub.push(MenuItem::Separator);
                 sub.push(info("Recent events".into()));
@@ -241,13 +354,57 @@ impl ksni::Tray for SvTray {
             }
             sub.push(MenuItem::Separator);
             let n = name.clone();
-            sub.push(StandardItem { label: "Open SSH terminal".into(), icon_name: "utilities-terminal".into(), activate: Box::new(move |t: &mut SvTray| t.open_ssh(&n)), ..Default::default() }.into());
+            sub.push(
+                StandardItem {
+                    label: "Open SSH terminal".into(),
+                    icon_name: "utilities-terminal".into(),
+                    activate: Box::new(move |t: &mut SvTray| t.open_ssh(&n)),
+                    ..Default::default()
+                }
+                .into(),
+            );
             let n = name.clone();
-            sub.push(StandardItem { label: "Check now".into(), icon_name: "view-refresh".into(), enabled: v.enabled, activate: Box::new(move |t: &mut SvTray| t.engine.check_now(Some(&n))), ..Default::default() }.into());
+            sub.push(
+                StandardItem {
+                    label: "Check now".into(),
+                    icon_name: "view-refresh".into(),
+                    enabled: v.enabled,
+                    activate: Box::new(move |t: &mut SvTray| t.engine.check_now(Some(&n))),
+                    ..Default::default()
+                }
+                .into(),
+            );
             let n = name.clone();
-            sub.push(CheckmarkItem { label: "Monitoring enabled".into(), checked: v.enabled, activate: Box::new(move |t: &mut SvTray| { let on = !t.snap.servers.iter().find(|s| s.name == n).map(|s| s.enabled).unwrap_or(true); let _ = t.engine.set_enabled(&n, on); }), ..Default::default() }.into());
+            sub.push(
+                CheckmarkItem {
+                    label: "Monitoring enabled".into(),
+                    checked: v.enabled,
+                    activate: Box::new(move |t: &mut SvTray| {
+                        let on = !t
+                            .snap
+                            .servers
+                            .iter()
+                            .find(|s| s.name == n)
+                            .map(|s| s.enabled)
+                            .unwrap_or(true);
+                        let _ = t.engine.set_enabled(&n, on);
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
             let n = name.clone();
-            sub.push(StandardItem { label: "Remove from SVMonitor".into(), icon_name: "list-remove".into(), activate: Box::new(move |t: &mut SvTray| { let _ = t.engine.remove(&n); }), ..Default::default() }.into());
+            sub.push(
+                StandardItem {
+                    label: "Remove from SVMonitor".into(),
+                    icon_name: "list-remove".into(),
+                    activate: Box::new(move |t: &mut SvTray| {
+                        let _ = t.engine.remove(&n);
+                    }),
+                    ..Default::default()
+                }
+                .into(),
+            );
             let mut label = format!("{} {} — {}", marker(v.overall), v.name, v.overall.label());
             if let (Some(mm), Overall::Online | Overall::Warning) = (&v.metrics, v.overall) {
                 label += &format!("  ·  RAM {:.0}%", mm.mem_pct());
@@ -255,13 +412,28 @@ impl ksni::Tray for SvTray {
                     label += &format!("  CPU {c:.0}%");
                 }
             }
-            m.push(SubMenu { label, submenu: sub, ..Default::default() }.into());
+            m.push(
+                SubMenu {
+                    label,
+                    submenu: sub,
+                    ..Default::default()
+                }
+                .into(),
+            );
         }
         if self.snap.servers.is_empty() {
             m.push(info("Use “Add from SSH config” below".into()));
         }
         m.push(MenuItem::Separator);
-        m.push(StandardItem { label: "Check all now".into(), icon_name: "view-refresh".into(), activate: Box::new(|t: &mut SvTray| t.engine.check_now(None)), ..Default::default() }.into());
+        m.push(
+            StandardItem {
+                label: "Check all now".into(),
+                icon_name: "view-refresh".into(),
+                activate: Box::new(|t: &mut SvTray| t.engine.check_now(None)),
+                ..Default::default()
+            }
+            .into(),
+        );
 
         let mut add: Vec<MenuItem<Self>> = Vec::new();
         if self.discovered.is_empty() {
@@ -269,31 +441,84 @@ impl ksni::Tray for SvTray {
         }
         for h in self.discovered.iter().take(40) {
             let h = h.clone();
-            add.push(action(&h.clone(), move |t: &mut SvTray| { let _ = t.engine.add(config::Server::alias(&h)); }));
+            add.push(action(&h.clone(), move |t: &mut SvTray| {
+                let _ = t.engine.add(config::Server::alias(&h));
+            }));
         }
-        m.push(SubMenu { label: "Add from SSH config".into(), icon_name: "list-add".into(), submenu: add, ..Default::default() }.into());
+        m.push(
+            SubMenu {
+                label: "Add from SSH config".into(),
+                icon_name: "list-add".into(),
+                submenu: add,
+                ..Default::default()
+            }
+            .into(),
+        );
 
         m.push(MenuItem::Separator);
-        m.push(CheckmarkItem { label: "Mute notifications for 1 hour".into(), checked: self.snap.muted, activate: Box::new(|t: &mut SvTray| { let on = !t.snap.muted; t.engine.send(crate::engine::Cmd::Mute(on.then_some(3600))); }), ..Default::default() }.into());
-        m.push(CheckmarkItem { label: "Start with desktop session".into(), checked: self.autostart_on, activate: Box::new(|t: &mut SvTray| t.toggle_autostart()), ..Default::default() }.into());
-        m.push(action("Open config file", |t: &mut SvTray| { let _ = launcher::open_path(&t.paths.config); }));
-        m.push(action("Open event history", |t: &mut SvTray| { let _ = launcher::open_path(&t.paths.events); }));
+        m.push(
+            CheckmarkItem {
+                label: "Mute notifications for 1 hour".into(),
+                checked: self.snap.muted,
+                activate: Box::new(|t: &mut SvTray| {
+                    let on = !t.snap.muted;
+                    t.engine.send(crate::engine::Cmd::Mute(on.then_some(3600)));
+                }),
+                ..Default::default()
+            }
+            .into(),
+        );
+        m.push(
+            CheckmarkItem {
+                label: "Start with desktop session".into(),
+                checked: self.autostart_on,
+                activate: Box::new(|t: &mut SvTray| t.toggle_autostart()),
+                ..Default::default()
+            }
+            .into(),
+        );
+        m.push(action("Open config file", |t: &mut SvTray| {
+            let _ = launcher::open_path(&t.paths.config);
+        }));
+        m.push(action("Open event history", |t: &mut SvTray| {
+            let _ = launcher::open_path(&t.paths.events);
+        }));
         m.push(MenuItem::Separator);
-        m.push(StandardItem { label: "Quit".into(), icon_name: "application-exit".into(), activate: Box::new(|t: &mut SvTray| t.engine.shutdown()), ..Default::default() }.into());
+        m.push(
+            StandardItem {
+                label: "Quit".into(),
+                icon_name: "application-exit".into(),
+                activate: Box::new(|t: &mut SvTray| t.engine.shutdown()),
+                ..Default::default()
+            }
+            .into(),
+        );
         m
     }
 }
 
 impl SvTray {
     fn open_ssh(&mut self, name: &str) {
-        let server = self.cfg.server(name).cloned().unwrap_or_else(|| config::Server::alias(name));
-        if let Err(e) = launcher::open_ssh(&self.cfg.general.terminal, &self.cfg.general.ssh_binary, &server) {
+        let server = self
+            .cfg
+            .server(name)
+            .cloned()
+            .unwrap_or_else(|| config::Server::alias(name));
+        if let Err(e) = launcher::open_ssh(
+            &self.cfg.general.terminal,
+            &self.cfg.general.ssh_binary,
+            &server,
+        ) {
             eprintln!("svmonitor: cannot open ssh for {name}: {e:#}");
         }
     }
     fn toggle_autostart(&mut self) {
         let p = autostart::autostart_path();
-        let r = if autostart::is_enabled(&p) { autostart::disable(&p).map(|_| ()) } else { autostart::enable(&p, &self.exe) };
+        let r = if autostart::is_enabled(&p) {
+            autostart::disable(&p).map(|_| ())
+        } else {
+            autostart::enable(&p, &self.exe)
+        };
         if let Err(e) = r {
             eprintln!("svmonitor: autostart: {e:#}");
         }
@@ -306,7 +531,23 @@ mod tests {
     use super::*;
 
     fn view(o: Overall) -> ServerView {
-        ServerView { name: "a".into(), target: "a".into(), enabled: true, overall: o, ssh: SshState::Unknown, tailscale: TsState::NotApplicable, metrics: None, last_check: Some(90), last_ok: None, down_since: Some(40), detail: "connection timed out".into(), pending_failures: 0, failure_threshold: 3, active_alerts: vec![], probing: false }
+        ServerView {
+            name: "a".into(),
+            target: "a".into(),
+            enabled: true,
+            overall: o,
+            ssh: SshState::Unknown,
+            tailscale: TsState::NotApplicable,
+            metrics: None,
+            last_check: Some(90),
+            last_ok: None,
+            down_since: Some(40),
+            detail: "connection timed out".into(),
+            pending_failures: 0,
+            failure_threshold: 3,
+            active_alerts: vec![],
+            probing: false,
+        }
     }
 
     #[test]
@@ -328,7 +569,13 @@ mod tests {
 
     #[test]
     fn tooltip_lists_every_server() {
-        let s = Snapshot { ts: 0, pid: 1, local_net_ok: true, muted: false, servers: vec![view(Overall::Down), view(Overall::Online)] };
+        let s = Snapshot {
+            ts: 0,
+            pid: 1,
+            local_net_ok: true,
+            muted: false,
+            servers: vec![view(Overall::Down), view(Overall::Online)],
+        };
         assert_eq!(tooltip_text(&s).lines().count(), 2);
     }
 }

@@ -132,8 +132,11 @@ pub fn glob_path(pattern: &Path) -> Vec<PathBuf> {
         let mut next = Vec::new();
         if name.contains(['*', '?']) {
             for dir in &results {
-                let Ok(rd) = fs::read_dir(if dir.as_os_str().is_empty() { Path::new(".") } else { dir })
-                else {
+                let Ok(rd) = fs::read_dir(if dir.as_os_str().is_empty() {
+                    Path::new(".")
+                } else {
+                    dir
+                }) else {
                     continue;
                 };
                 let mut names: Vec<String> = rd
@@ -193,9 +196,14 @@ pub struct Resolved {
 
 /// Parse the output of `ssh -G`.
 pub fn parse_ssh_g(out: &str) -> Resolved {
-    let mut r = Resolved { port: 22, ..Default::default() };
+    let mut r = Resolved {
+        port: 22,
+        ..Default::default()
+    };
     for line in out.lines() {
-        let Some((k, v)) = line.split_once(' ') else { continue };
+        let Some((k, v)) = line.split_once(' ') else {
+            continue;
+        };
         match k {
             "hostname" => r.hostname = v.trim().to_string(),
             "user" => r.user = v.trim().to_string(),
@@ -256,7 +264,11 @@ mod tests {
             "Include conf.d/*.conf\nHost web1 web2\n  HostName x\nHost *\n  User a\nHost !bad ok\nHost *.corp\nHost=eq\n",
         )
         .unwrap();
-        fs::write(ssh.join("conf.d/a.conf"), "Host inc1\n  HostName y\nHost web1\n").unwrap();
+        fs::write(
+            ssh.join("conf.d/a.conf"),
+            "Host inc1\n  HostName y\nHost web1\n",
+        )
+        .unwrap();
         fs::write(ssh.join("conf.d/skip.txt"), "Host nope\n").unwrap();
         let hosts = discover(&ssh.join("config"));
         assert_eq!(hosts, vec!["inc1", "web1", "web2", "ok", "eq"]);

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SVMonitor
+GenericName=Server Monitor
+Comment=Lightweight SSH server monitor in the system tray
+Exec=svmonitor run
+Icon=network-server
+Terminal=false
+Categories=Network;
+Keywords=ssh;server;monitor;tray;
+StartupNotify=false
