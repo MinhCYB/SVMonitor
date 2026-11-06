@@ -1,0 +1,532 @@
+//! Command line interface and the daemon entry point (tray or headless).
+use crate::config::{self, Config, Paths, Server};
+use crate::engine::{Cmd, Engine, Handle};
+use crate::health::{Context, Outcome, Tracker};
+use crate::model::*;
+use crate::probe::{self, ProbeResult, ProbeSpec};
+use crate::tray::{self, SvTray};
+use crate::util::{fmt_ago, fmt_duration, fmt_kib, now_unix};
+use crate::{autostart, history, launcher, localnet, sshconfig, tailscale};
+use anyhow::{Context as _, Result, bail};
+use clap::{Parser, Subcommand};
+use std::fs::OpenOptions;
+use std::os::fd::AsRawFd;
+use std::os::unix::fs::OpenOptionsExt;
+use std::time::Duration;
+
+#[derive(Parser)]
+#[command(name = "svmonitor", version, about = "Lightweight SSH server monitor with system tray", long_about = None)]
+pub struct Cli {
+    /// Use this config file instead of ~/.config/svmonitor/config.toml
+    #[arg(long, global = true, value_name = "FILE")]
+    pub config: Option<std::path::PathBuf>,
+    #[command(subcommand)]
+    pub cmd: Option<Command>,
+}
+
+#[derive(Subcommand)]
+pub enum Command {
+    /// Run the monitor (system tray when available, otherwise headless). Default command.
+    Run {
+        /// Never create a tray icon; print events to stdout
+        #[arg(long)]
+        headless: bool,
+        /// Do not send desktop notifications
+        #[arg(long)]
+        no_notify: bool,
+    },
+    /// Show state of the running monitor (or probe once if it is not running)
+    Status {
+        #[arg(long)]
+        json: bool,
+        /// Keep refreshing
+        #[arg(long, short)]
+        watch: bool,
+    },
+    /// Probe servers once right now, without the daemon (read-only)
+    Check {
+        /// Server names (default: all enabled)
+        names: Vec<String>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// List configured servers
+    List,
+    /// List SSH host aliases found in ~/.ssh/config
+    Discover,
+    /// Import SSH aliases for monitoring
+    Import {
+        /// Import every discovered alias without asking
+        #[arg(long)]
+        all: bool,
+        /// Alias names to import
+        names: Vec<String>,
+    },
+    /// Add a server: an SSH alias, or --host for a manual one
+    Add {
+        name: String,
+        #[arg(long)]
+        host: Option<String>,
+        #[arg(long)]
+        user: Option<String>,
+        #[arg(long)]
+        port: Option<u16>,
+        #[arg(long, value_name = "PATH")]
+        identity: Option<String>,
+        #[arg(long, value_name = "SECS")]
+        interval: Option<u64>,
+    },
+    /// Remove a server from monitoring (SSH config is untouched)
+    Remove { name: String },
+    /// Turn monitoring on for a server
+    Enable { name: String },
+    /// Turn monitoring off for a server
+    Disable { name: String },
+    /// Show event history
+    History {
+        server: Option<String>,
+        #[arg(long, short, default_value_t = 20)]
+        n: usize,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Open an interactive SSH session in a terminal
+    Ssh { name: String },
+    /// Manage start-with-session
+    Autostart {
+        #[command(subcommand)]
+        action: AutostartCmd,
+    },
+    /// Tell the running monitor to re-read the config
+    Reload,
+    /// Show where files live
+    Paths,
+}
+
+#[derive(Subcommand)]
+pub enum AutostartCmd {
+    Enable,
+    Disable,
+    Status,
+}
+
+fn paths_for(cli: &Cli) -> Paths {
+    let mut p = Paths::from_env();
+    if let Some(c) = &cli.config {
+        p.config = c.clone();
+    }
+    p
+}
+
+pub fn main(cli: Cli) -> Result<i32> {
+    let paths = paths_for(&cli);
+    match cli.cmd.unwrap_or(Command::Run { headless: false, no_notify: false }) {
+        Command::Run { headless, no_notify } => {
+            run_daemon(paths, headless, no_notify)?;
+            Ok(0)
+        }
+        Command::Status { json, watch } => status(&paths, json, watch),
+        Command::Check { names, json } => check(&paths, &names, json),
+        Command::List => {
+            let cfg = config::load(&paths.config)?;
+            if cfg.servers.is_empty() {
+                println!("No servers configured. Try `svmonitor discover` then `svmonitor import <alias>`.");
+            }
+            for s in &cfg.servers {
+                println!("{:<24} {:<4} {}{}", s.name, if s.enabled { "on" } else { "off" }, s.destination(), if s.is_manual() { "  (manual)" } else { "  (ssh alias)" });
+            }
+            Ok(0)
+        }
+        Command::Discover => {
+            let cfg = config::load(&paths.config)?;
+            let Some(p) = sshconfig::default_config_path() else { bail!("HOME is not set") };
+            let hosts = sshconfig::discover(&p);
+            if hosts.is_empty() {
+                println!("No host aliases found in {}", p.display());
+            }
+            for h in hosts {
+                let r = sshconfig::resolve(&cfg.general.ssh_binary, &h);
+                let tag = if cfg.server(&h).is_some() { "[monitored]" } else { "" };
+                match r {
+                    Some(r) => println!("{:<20} {}@{}:{} {}", h, r.user, r.hostname, r.port, tag),
+                    None => println!("{h:<20} (cannot resolve) {tag}"),
+                }
+            }
+            Ok(0)
+        }
+        Command::Import { all, names } => {
+            let mut cfg = config::load(&paths.config)?;
+            let Some(p) = sshconfig::default_config_path() else { bail!("HOME is not set") };
+            let found = sshconfig::discover(&p);
+            let picks: Vec<String> = if all { found.clone() } else { names };
+            if picks.is_empty() {
+                bail!("nothing selected: pass alias names or --all (see `svmonitor discover`)");
+            }
+            let mut n = 0;
+            for name in picks {
+                if !found.contains(&name) {
+                    eprintln!("skip {name}: not an alias in {}", p.display());
+                } else if cfg.server(&name).is_some() {
+                    eprintln!("skip {name}: already monitored");
+                } else {
+                    cfg.add(Server::alias(&name))?;
+                    println!("added {name}");
+                    n += 1;
+                }
+            }
+            if n > 0 {
+                config::save(&paths.config, &cfg)?;
+                signal_reload(&paths);
+            }
+            Ok(0)
+        }
+        Command::Add { name, host, user, port, identity, interval } => {
+            let mut cfg = config::load(&paths.config)?;
+            let s = Server { host, user, port, identity_file: identity, interval_secs: interval, ..Server::alias(&name) };
+            cfg.add(s)?;
+            config::save(&paths.config, &cfg)?;
+            signal_reload(&paths);
+            println!("added {name}");
+            Ok(0)
+        }
+        Command::Remove { name } => mutate(&paths, |c| if c.remove(&name) { Ok(()) } else { bail!("unknown server {name:?}") }, &format!("removed {name}")),
+        Command::Enable { name } => mutate(&paths, |c| set_enabled(c, &name, true), &format!("{name}: monitoring on")),
+        Command::Disable { name } => mutate(&paths, |c| set_enabled(c, &name, false), &format!("{name}: monitoring off")),
+        Command::History { server, n, json } => {
+            let evs = history::read_events(&paths.events(), server.as_deref(), n);
+            let now = now_unix();
+            for e in evs {
+                if json {
+                    println!("{}", serde_json::to_string(&e)?);
+                } else {
+                    println!("{} {:<16} {:<18} {}", fmt_time(e.ts), e.server, format!("{:?}", e.kind).to_lowercase(), e.message);
+                    let _ = now;
+                }
+            }
+            Ok(0)
+        }
+        Command::Ssh { name } => {
+            let cfg = config::load(&paths.config)?;
+            let s = cfg.server(&name).cloned().unwrap_or_else(|| Server::alias(&name));
+            s.validate()?;
+            launcher::open_ssh(&cfg.general.terminal, &cfg.general.ssh_binary, &s)?;
+            Ok(0)
+        }
+        Command::Autostart { action } => {
+            let p = autostart::autostart_path();
+            match action {
+                AutostartCmd::Enable => {
+                    let exe = std::env::current_exe()?;
+                    autostart::enable(&p, exe.to_str().context("non-UTF-8 executable path")?)?;
+                    println!("enabled: {}", p.display());
+                }
+                AutostartCmd::Disable => println!("{}", if autostart::disable(&p)? { "disabled" } else { "was not enabled" }),
+                AutostartCmd::Status => println!("{}", if autostart::is_enabled(&p) { "enabled" } else { "disabled" }),
+            }
+            Ok(0)
+        }
+        Command::Reload => {
+            if signal_reload(&paths) { println!("reload requested") } else { println!("monitor is not running") }
+            Ok(0)
+        }
+        Command::Paths => {
+            println!("config:   {}", paths.config.display());
+            println!("history:  {}", paths.events().display());
+            println!("samples:  {}", paths.samples().display());
+            println!("runtime:  {}", paths.runtime_dir.display());
+            println!("autostart:{}", autostart::autostart_path().display());
+            Ok(0)
+        }
+    }
+}
+
+fn set_enabled(c: &mut Config, name: &str, on: bool) -> Result<()> {
+    match c.server_mut(name) {
+        Some(s) => {
+            s.enabled = on;
+            Ok(())
+        }
+        None => bail!("unknown server {name:?}"),
+    }
+}
+
+fn mutate(paths: &Paths, f: impl FnOnce(&mut Config) -> Result<()>, msg: &str) -> Result<i32> {
+    let mut cfg = config::load(&paths.config)?;
+    f(&mut cfg)?;
+    config::save(&paths.config, &cfg)?;
+    signal_reload(paths);
+    println!("{msg}");
+    Ok(0)
+}
+
+fn fmt_time(ts: i64) -> String {
+    // Local time without a tz crate: use libc localtime_r.
+    let t: libc::time_t = ts as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: valid pointers to initialised structs.
+    unsafe { libc::localtime_r(&t, &mut tm) };
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
+}
+
+fn running_pid(paths: &Paths) -> Option<u32> {
+    let snap: Snapshot = serde_json::from_slice(&std::fs::read(paths.snapshot()).ok()?).ok()?;
+    // SAFETY: signal 0 only checks existence.
+    (unsafe { libc::kill(snap.pid as i32, 0) } == 0).then_some(snap.pid)
+}
+
+/// SIGHUP the running monitor, if any.
+fn signal_reload(paths: &Paths) -> bool {
+    match running_pid(paths) {
+        Some(pid) => {
+            // SAFETY: plain syscall.
+            unsafe { libc::kill(pid as i32, libc::SIGHUP) == 0 }
+        }
+        None => false,
+    }
+}
+
+pub fn exit_code_for(servers: &[ServerView]) -> i32 {
+    let worst = servers.iter().filter(|s| s.enabled).map(|s| s.overall.severity()).max().unwrap_or(0);
+    match worst {
+        0..=1 => 0,
+        2..=3 => 1,
+        _ => 2,
+    }
+}
+
+fn status(paths: &Paths, json: bool, watch: bool) -> Result<i32> {
+    loop {
+        let snap = match (running_pid(paths), std::fs::read(paths.snapshot())) {
+            (Some(_), Ok(b)) => serde_json::from_slice::<Snapshot>(&b).context("state file")?,
+            _ => {
+                if watch {
+                    bail!("monitor is not running (start it with `svmonitor run`)");
+                }
+                eprintln!("(monitor not running; probing once)");
+                let cfg = config::load(&paths.config)?;
+                Snapshot { ts: now_unix(), pid: 0, local_net_ok: localnet::has_default_route(), muted: false, servers: one_shot_all(&cfg, &[]) }
+            }
+        };
+        if json {
+            println!("{}", serde_json::to_string_pretty(&snap)?);
+        } else {
+            if watch {
+                print!("\x1b[2J\x1b[H");
+            }
+            print_table(&snap);
+        }
+        if !watch {
+            return Ok(exit_code_for(&snap.servers));
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
+pub fn print_table(s: &Snapshot) {
+    if s.servers.is_empty() {
+        println!("No servers configured.");
+        return;
+    }
+    if !s.local_net_ok {
+        println!("! this machine has no network route\n");
+    }
+    println!("{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}", "SERVER", "STATE", "TAILSCALE", "CPU", "RAM", "DISK", "UPTIME", "DETAIL");
+    for v in &s.servers {
+        let (cpu, ram, disk, up) = match (&v.metrics, v.ssh) {
+            (Some(m), SshState::Available) => (
+                m.cpu_pct.map(|c| format!("{c:.0}%")).unwrap_or_else(|| "-".into()),
+                format!("{:.0}%", m.mem_pct()),
+                m.worst_disk().map(|d| format!("{:.0}%", d.pct())).unwrap_or_else(|| "-".into()),
+                fmt_duration(m.uptime_secs),
+            ),
+            _ => ("-".into(), "-".into(), "-".into(), "-".into()),
+        };
+        let mut state = v.overall.label().to_string();
+        if v.pending_failures > 0 {
+            state += &format!(" ({}/{})", v.pending_failures, v.failure_threshold);
+        }
+        let mut detail = v.detail.clone();
+        if let (Overall::Down, Some(d)) = (v.overall, v.down_since) {
+            detail = format!("down {} — {detail}", fmt_duration((s.ts - d).max(0) as u64));
+        }
+        if detail.is_empty() {
+            if let Some(t) = v.last_check {
+                detail = format!("checked {}", fmt_ago(t, s.ts));
+            }
+        }
+        println!("{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}", trunc(&v.name, 18), trunc(&state, 16), trunc(v.tailscale.label(), 14), cpu, ram, disk, up, detail);
+    }
+    if let Some(v) = s.servers.iter().find(|v| v.metrics.is_some() && v.ssh == SshState::Available) {
+        let m = v.metrics.as_ref().unwrap();
+        println!("\n{}: load {:.2} {:.2} {:.2}, RAM {} / {}", v.name, m.load[0], m.load[1], m.load[2], fmt_kib(m.mem_used_kib), fmt_kib(m.mem_total_kib));
+    }
+}
+
+fn trunc(s: &str, n: usize) -> String {
+    if s.chars().count() <= n { s.to_string() } else { format!("{}…", s.chars().take(n - 1).collect::<String>()) }
+}
+
+/// One immediate, debounce-free probe of a server (for `check` / `status` without a daemon).
+pub fn one_shot(cfg: &Config, s: &Server) -> ServerView {
+    let g = &cfg.general;
+    let spec = ProbeSpec {
+        ssh_bin: g.ssh_binary.clone(),
+        server: s.clone(),
+        connect_timeout: Duration::from_secs(g.connect_timeout_secs),
+        deadline: Duration::from_secs(g.probe_timeout_secs),
+        sample_cpu: true,
+    };
+    let host = s.host.clone().or_else(|| sshconfig::resolve(&g.ssh_binary, &s.name).map(|r| r.hostname));
+    let ts = match (&host, g.check_tailscale) {
+        (Some(h), true) => tailscale::classify(h, &tailscale::fetch(std::path::Path::new(tailscale::SOCKET), Duration::from_secs(2))),
+        _ => TsState::NotApplicable,
+    };
+    let mut gg = g.clone();
+    gg.failure_threshold = 1;
+    let mut t = Tracker::new(&s.name, &s.destination(), s.enabled);
+    if !s.enabled {
+        return t.view(&gg, false);
+    }
+    let outcome = if ts.is_local_problem() {
+        Outcome::Fail { kind: FailKind::Timeout, detail: String::new() }
+    } else {
+        match probe::run(&spec, now_unix()) {
+            ProbeResult::Ok(r) => Outcome::Ok(r),
+            ProbeResult::Fail { kind, detail } => Outcome::Fail { kind, detail },
+        }
+    };
+    t.apply(outcome, &Context { now: now_unix(), ts, local_net_ok: localnet::has_default_route() }, &cfg.thresholds, &gg);
+    t.view(&gg, false)
+}
+
+fn one_shot_all(cfg: &Config, names: &[String]) -> Vec<ServerView> {
+    let targets: Vec<&Server> = cfg.servers.iter().filter(|s| names.is_empty() || names.contains(&s.name)).collect();
+    std::thread::scope(|sc| {
+        let hs: Vec<_> = targets.iter().map(|s| sc.spawn(|| one_shot(cfg, s))).collect();
+        hs.into_iter().filter_map(|h| h.join().ok()).collect()
+    })
+}
+
+fn check(paths: &Paths, names: &[String], json: bool) -> Result<i32> {
+    let cfg = config::load(&paths.config)?;
+    for n in names {
+        if cfg.server(n).is_none() {
+            bail!("unknown server {n:?}; see `svmonitor list`");
+        }
+    }
+    if cfg.servers.is_empty() {
+        bail!("no servers configured");
+    }
+    let views = one_shot_all(&cfg, names);
+    let snap = Snapshot { ts: now_unix(), pid: 0, local_net_ok: localnet::has_default_route(), muted: false, servers: views };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&snap)?);
+    } else {
+        print_table(&snap);
+    }
+    Ok(exit_code_for(&snap.servers))
+}
+
+/// Exclusive per-user lock; held for process lifetime.
+fn acquire_lock(paths: &Paths) -> Result<std::fs::File> {
+    crate::util::ensure_private_dir(&paths.runtime_dir)?;
+    let f = OpenOptions::new().create(true).truncate(false).write(true).mode(0o600).open(paths.lock())?;
+    // SAFETY: fd is valid for the lifetime of `f`.
+    if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        bail!("svmonitor is already running (lock {})", paths.lock().display());
+    }
+    Ok(f)
+}
+
+fn install_signals(handle: Handle) -> Result<()> {
+    // Block in every thread (must happen before spawning others), consume in a dedicated one.
+    // SAFETY: standard sigset manipulation on a local set.
+    unsafe {
+        let mut set: libc::sigset_t = std::mem::zeroed();
+        libc::sigemptyset(&mut set);
+        for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            libc::sigaddset(&mut set, s);
+        }
+        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
+        std::thread::Builder::new().name("svm-signal".into()).stack_size(64 * 1024).spawn(move || {
+            loop {
+                let mut sig = 0;
+                if libc::sigwait(&set, &mut sig) != 0 {
+                    continue;
+                }
+                match sig {
+                    libc::SIGHUP => handle.send(Cmd::Reload),
+                    _ => {
+                        handle.shutdown();
+                        return;
+                    }
+                }
+            }
+        })?;
+    }
+    Ok(())
+}
+
+fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
+    let _lock = acquire_lock(&paths)?;
+    let cfg = config::load(&paths.config)?;
+    let (mut engine, handle) = Engine::new(cfg.clone(), Paths { config: paths.config.clone(), state_dir: paths.state_dir.clone(), runtime_dir: paths.runtime_dir.clone() }, !no_notify);
+    install_signals(handle.clone())?;
+
+    let mut tray_handle = None;
+    if !headless {
+        use ksni::blocking::TrayMethods;
+        match SvTray::new(handle.clone(), &paths, cfg.clone()).assume_sni_available(true).spawn() {
+            Ok(h) => {
+                let h = std::sync::Arc::new(h);
+                let th = h.clone();
+                engine.add_sink(Box::new(move |s: &Snapshot| {
+                    let s = s.clone();
+                    th.update(move |t| t.snap = s);
+                }));
+                tray_handle = Some(h);
+                eprintln!("svmonitor: tray started ({} servers)", cfg.servers.len());
+            }
+            Err(e) => eprintln!("svmonitor: no system tray ({e}); running headless. Use `svmonitor status` or run with --headless."),
+        }
+    }
+    if tray_handle.is_none() {
+        engine.add_event_sink(Box::new(|e: &Event| {
+            println!("{} {} [{:?}] {}", fmt_time(e.ts), e.server, e.kind, e.message);
+        }));
+        let _ = tray::marker;
+    }
+    if cfg.servers.is_empty() {
+        eprintln!("svmonitor: no servers configured. Run `svmonitor discover` and `svmonitor import <alias>`.");
+    }
+    engine.run();
+    if let Some(h) = tray_handle {
+        h.shutdown().wait();
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn v(o: Overall, en: bool) -> ServerView {
+        ServerView { name: "a".into(), target: "a".into(), enabled: en, overall: o, ssh: SshState::Unknown, tailscale: TsState::NotApplicable, metrics: None, last_check: None, last_ok: None, down_since: None, detail: String::new(), pending_failures: 0, failure_threshold: 3, active_alerts: vec![], probing: false }
+    }
+
+    #[test]
+    fn exit_codes() {
+        assert_eq!(exit_code_for(&[]), 0);
+        assert_eq!(exit_code_for(&[v(Overall::Online, true)]), 0);
+        assert_eq!(exit_code_for(&[v(Overall::Warning, true)]), 1);
+        assert_eq!(exit_code_for(&[v(Overall::LocalIssue, true)]), 1);
+        assert_eq!(exit_code_for(&[v(Overall::Online, true), v(Overall::Down, true)]), 2);
+        assert_eq!(exit_code_for(&[v(Overall::Down, false)]), 0, "disabled servers do not count");
+    }
+
+    #[test]
+    fn truncation() {
+        assert_eq!(trunc("abcdef", 4), "abc…");
+        assert_eq!(trunc("abc", 4), "abc");
+    }
+}
