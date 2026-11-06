@@ -485,7 +485,11 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
                     th.update(move |t| t.snap = s);
                 }));
                 tray_handle = Some(h);
-                eprintln!("svmonitor: tray started ({} servers)", cfg.servers.len());
+                if tray::watcher_present() {
+                    eprintln!("svmonitor: tray started ({} servers)", cfg.servers.len());
+                } else {
+                    eprintln!("svmonitor: tray registered but no StatusNotifierWatcher is running, so no icon is visible yet.\n  GNOME: install/enable the AppIndicator extension (Arch: gnome-shell-extension-appindicator, Debian: gnome-shell-extension-appindicator).\n  The monitor keeps working (notifications, `svmonitor status`) and the icon appears automatically once a tray host starts.");
+                }
             }
             Err(e) => eprintln!("svmonitor: no system tray ({e}); running headless. Use `svmonitor status` or run with --headless."),
         }
@@ -494,7 +498,6 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
         engine.add_event_sink(Box::new(|e: &Event| {
             println!("{} {} [{:?}] {}", fmt_time(e.ts), e.server, e.kind, e.message);
         }));
-        let _ = tray::marker;
     }
     if cfg.servers.is_empty() {
         eprintln!("svmonitor: no servers configured. Run `svmonitor discover` and `svmonitor import <alias>`.");

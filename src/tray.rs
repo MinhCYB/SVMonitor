@@ -8,6 +8,19 @@ use crate::{autostart, history, launcher, sshconfig};
 use ksni::menu::{CheckmarkItem, MenuItem, StandardItem, SubMenu};
 use ksni::{Category, Icon, Status, ToolTip};
 
+/// Is a StatusNotifierWatcher (tray host) currently on the session bus?
+pub fn watcher_present() -> bool {
+    zbus::blocking::Connection::session()
+        .ok()
+        .and_then(|c| {
+            let r = c
+                .call_method(Some("org.freedesktop.DBus"), "/org/freedesktop/DBus", Some("org.freedesktop.DBus"), "NameHasOwner", &("org.kde.StatusNotifierWatcher",))
+                .ok()?;
+            r.body().deserialize::<bool>().ok()
+        })
+        .unwrap_or(false)
+}
+
 pub struct SvTray {
     pub engine: Handle,
     pub paths: PathsOwned,
