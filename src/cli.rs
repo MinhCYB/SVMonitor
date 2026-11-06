@@ -101,6 +101,8 @@ pub enum Command {
     Reload,
     /// Show where files live
     Paths,
+    /// Send a test desktop notification and report whether a tray host is present
+    Doctor,
 }
 
 #[derive(Subcommand)]
@@ -229,6 +231,7 @@ pub fn main(cli: Cli) -> Result<i32> {
             if signal_reload(&paths) { println!("reload requested") } else { println!("monitor is not running") }
             Ok(0)
         }
+        Command::Doctor => doctor(&paths),
         Command::Paths => {
             println!("config:   {}", paths.config.display());
             println!("history:  {}", paths.events().display());
@@ -238,6 +241,29 @@ pub fn main(cli: Cli) -> Result<i32> {
             Ok(0)
         }
     }
+}
+
+fn doctor(paths: &Paths) -> Result<i32> {
+    let cfg = config::load(&paths.config)?;
+    let mut bad = 0;
+    let mut line = |ok: bool, what: String| {
+        println!("[{}] {what}", if ok { " ok " } else { "WARN" });
+        if !ok {
+            bad += 1;
+        }
+    };
+    line(launcher::find_in_path(&cfg.general.ssh_binary).is_some(), format!("ssh client: {}", cfg.general.ssh_binary));
+    line(sshconfig::default_config_path().is_some_and(|p| p.exists()), "~/.ssh/config present".into());
+    line(tray::watcher_present(), "tray host (StatusNotifierWatcher) on session bus; GNOME needs the AppIndicator extension".into());
+    let ts = tailscale::fetch(std::path::Path::new(tailscale::SOCKET), Duration::from_secs(2));
+    line(matches!(ts, tailscale::Status::Running { .. }), "tailscaled reachable and running (optional)".into());
+    line(localnet::has_default_route(), "default network route".into());
+    line(launcher::terminal_prefix(&cfg.general.terminal, &|b| launcher::find_in_path(b).is_some()).is_some(), "terminal emulator for 'Open SSH'".into());
+    let n = crate::notify::Notifier::spawn();
+    n.show(crate::notify::Toast { server: "doctor".into(), urgency: 0, summary: "SVMonitor test notification".into(), body: "If you can read this, notifications work.".into(), icon: "dialog-information" });
+    std::thread::sleep(Duration::from_millis(800));
+    println!("(a test notification was sent; check your desktop)");
+    Ok(i32::from(bad > 0))
 }
 
 fn set_enabled(c: &mut Config, name: &str, on: bool) -> Result<()> {
