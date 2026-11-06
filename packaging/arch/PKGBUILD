@@ -1,7 +1,7 @@
 # Maintainer: SVMonitor contributors
 # Build from a local checkout:  cd packaging/arch && makepkg -si
 pkgname=svmonitor
-pkgver=0.1.0
+pkgver=0.1.1
 pkgrel=1
 pkgdesc='Lightweight SSH server monitor with system tray (no agents on servers)'
 arch=('x86_64' 'aarch64')
@@ -10,7 +10,8 @@ license=('MIT')
 depends=('openssh' 'gcc-libs' 'glibc')
 makedepends=('cargo')
 optdepends=('tailscale: Tailscale peer awareness'
-            'gnome-shell-extension-appindicator: tray icon on GNOME')
+ 'xdg-terminal-exec: respect the desktop/user default terminal'
+ 'gnome-shell-extension-appindicator: tray icon on GNOME')
 source=()
 # Local build: the tarball is created from the repository this PKGBUILD lives in.
 _repo="$(cd "$startdir/../.." && pwd)"

@@ -684,39 +684,65 @@ fn acquire_lock(paths: &Paths) -> Result<std::fs::File> {
     Ok(f)
 }
 
-fn install_signals(handle: Handle) -> Result<()> {
-    // Block in every thread (must happen before spawning others), consume in a dedicated one.
-    // SAFETY: standard sigset manipulation on a local set.
-    unsafe {
-        let mut set: libc::sigset_t = std::mem::zeroed();
-        libc::sigemptyset(&mut set);
-        for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
-            libc::sigaddset(&mut set, s);
+struct SignalMaskGuard {
+    old_set: libc::sigset_t,
+}
+
+impl SignalMaskGuard {
+    fn block() -> Result<(Self, libc::sigset_t)> {
+        // Block SIGHUP, SIGINT, SIGTERM in the calling thread before any other threads
+        // are spawned. Future threads inherit this mask so process-wide signals cannot kill them.
+        unsafe {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+                libc::sigaddset(&mut set, s);
+            }
+            let mut old_set: libc::sigset_t = std::mem::zeroed();
+            if libc::pthread_sigmask(libc::SIG_BLOCK, &set, &mut old_set) != 0 {
+                bail!("failed to block signals");
+            }
+            Ok((Self { old_set }, set))
         }
-        libc::pthread_sigmask(libc::SIG_BLOCK, &set, std::ptr::null_mut());
-        std::thread::Builder::new()
-            .name("svm-signal".into())
-            .stack_size(64 * 1024)
-            .spawn(move || {
-                loop {
-                    let mut sig = 0;
-                    if libc::sigwait(&set, &mut sig) != 0 {
-                        continue;
-                    }
-                    match sig {
-                        libc::SIGHUP => handle.send(Cmd::Reload),
-                        _ => {
-                            handle.shutdown();
-                            return;
-                        }
+    }
+}
+
+impl Drop for SignalMaskGuard {
+    fn drop(&mut self) {
+        // Restore the original signal mask of the calling thread on exit.
+        unsafe {
+            libc::pthread_sigmask(libc::SIG_SETMASK, &self.old_set, std::ptr::null_mut());
+        }
+    }
+}
+
+fn install_signals(handle: Handle, set: libc::sigset_t) -> Result<()> {
+    // Signals were blocked before any threads were spawned; consume in a dedicated one.
+    std::thread::Builder::new()
+        .name("svm-signal".into())
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            loop {
+                let mut sig = 0;
+                // SAFETY: set is a local sigset_t passed by value.
+                if unsafe { libc::sigwait(&set, &mut sig) } != 0 {
+                    continue;
+                }
+                match sig {
+                    libc::SIGHUP => handle.send(Cmd::Reload),
+                    _ => {
+                        handle.shutdown();
+                        return;
                     }
                 }
-            })?;
-    }
+            }
+        })?;
     Ok(())
 }
 
 fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
+    // Block signals BEFORE spawning any threads (Engine, Notifier, Tray, etc.)
+    let (_sig_guard, sig_set) = SignalMaskGuard::block()?;
     let _lock = acquire_lock(&paths)?;
     let cfg = config::load(&paths.config)?;
     let (mut engine, handle) = Engine::new(
@@ -728,8 +754,7 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
         },
         !no_notify,
     );
-    install_signals(handle.clone())?;
-
+    install_signals(handle.clone(), sig_set)?;
     let mut tray_handle = None;
     if !headless {
         use ksni::blocking::TrayMethods;

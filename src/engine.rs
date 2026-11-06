@@ -117,6 +117,7 @@ pub struct Engine {
     history: History,
     limiter: Limiter,
     notifier: Option<Notifier>,
+    with_notifications: bool,
     sinks: Vec<Sink>,
     event_sinks: Vec<EventSink>,
     ts_cache: Arc<TsCache>,
@@ -160,6 +161,7 @@ impl Engine {
         let history = History::new(paths.events(), paths.samples(), cfg.general.keep_samples);
         let mut e = Engine {
             notifier: (with_notifications && cfg.general.notifications).then(Notifier::spawn),
+            with_notifications,
             cfg,
             paths,
             slots: Vec::new(),
@@ -254,13 +256,14 @@ impl Engine {
     fn finish(&mut self) {
         let _ = std::fs::remove_file(self.paths.snapshot());
     }
-
     fn next_wait(&self) -> Duration {
         let now = Instant::now();
         let mut wait = MAX_WAIT;
-        for s in &self.slots {
-            if s.tracker.enabled && !s.inflight {
-                wait = wait.min(s.due.saturating_duration_since(now));
+        if self.inflight < self.cfg.general.max_parallel_probes {
+            for s in &self.slots {
+                if s.tracker.enabled && !s.inflight {
+                    wait = wait.min(s.due.saturating_duration_since(now));
+                }
             }
         }
         if let Some(g) = self.grace_until {
@@ -523,7 +526,14 @@ impl Engine {
             if on {
                 slot.due = Instant::now();
             } else {
+                // Discard any probe still in flight for the now-disabled server.
+                slot.generation = self.next_gen;
+                self.next_gen += 1;
+                slot.inflight = false;
                 self.limiter.forget(name);
+                if let Some(n) = &self.notifier {
+                    n.close_for(name);
+                }
             }
             self.history.record_event(&ev);
         }
@@ -565,8 +575,29 @@ impl Engine {
         }
         self.cfg = new;
         let wanted = self.cfg.servers.clone();
+        for s in &self.slots {
+            if !wanted.iter().any(|w| w.name == s.server.name) {
+                self.limiter.forget(&s.server.name);
+                if let Some(n) = &self.notifier {
+                    n.close_for(&s.server.name);
+                }
+            }
+        }
         self.slots
             .retain(|s| wanted.iter().any(|w| w.name == s.server.name));
+
+        if self.with_notifications {
+            match (&self.notifier, self.cfg.general.notifications) {
+                (None, true) => {
+                    self.notifier = Some(Notifier::spawn());
+                }
+                (Some(_), false) => {
+                    self.notifier = None;
+                }
+                _ => {}
+            }
+        }
+
         for w in wanted {
             match self.slots.iter().position(|s| s.server.name == w.name) {
                 Some(i) => {
@@ -575,15 +606,30 @@ impl Engine {
                     let was = slot.server.enabled;
                     slot.server = w.clone();
                     if changed {
+                        slot.generation = self.next_gen;
+                        self.next_gen += 1;
+                        slot.inflight = false;
                         slot.host = w.host.clone();
-                        slot.tracker.target = w.destination();
+                        if slot.tracker.target != w.destination() {
+                            slot.tracker = Tracker::new(&w.name, &w.destination(), w.enabled);
+                        } else {
+                            slot.tracker.target = w.destination();
+                        }
                         slot.due = Instant::now();
                     }
                     if was != w.enabled {
                         if let Some(ev) = slot.tracker.set_enabled(w.enabled, util::now_unix()) {
                             self.history.record_event(&ev);
-                            if w.enabled {
-                                slot.due = Instant::now();
+                        }
+                        if w.enabled {
+                            slot.due = Instant::now();
+                        } else {
+                            slot.generation = self.next_gen;
+                            self.next_gen += 1;
+                            slot.inflight = false;
+                            self.limiter.forget(&w.name);
+                            if let Some(n) = &self.notifier {
+                                n.close_for(&w.name);
                             }
                         }
                     }

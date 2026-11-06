@@ -174,6 +174,15 @@ pub fn run(spec: &ProbeSpec, ts: i64) -> ProbeResult {
         .stderr(Stdio::piped())
         .env_remove("SSH_ASKPASS_REQUIRE")
         .process_group(0);
+    // SAFETY: unblock signals in child process before exec so ssh has default signal semantics
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut set: libc::sigset_t = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigprocmask(libc::SIG_SETMASK, &set, std::ptr::null_mut());
+            Ok(())
+        });
+    }
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {

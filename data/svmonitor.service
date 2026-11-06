@@ -7,6 +7,7 @@ PartOf=graphical-session.target
 [Service]
 Type=simple
 ExecStart=/usr/bin/svmonitor run
+ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=10
 # Hardening limited to options that do not need a user namespace. Namespace sandboxing

@@ -7,7 +7,7 @@ docker run --rm -v "$ROOT":/src:ro -v "$ROOT/dist":/out debian:12-slim sh -ec '
   apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates gcc libc6-dev dpkg-dev >/dev/null
   curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal >/dev/null
   . $HOME/.cargo/env
-  mkdir /build && cd /src && tar --exclude=./target --exclude=./dist --exclude=./.git -cf - . | tar -xf - -C /build && cd /build
+  mkdir /build && cd /src && tar --exclude=./target --exclude=./dist --exclude=./.git --exclude=./packaging/arch/src --exclude=./packaging/arch/pkg --exclude="*.pkg.tar.*" -cf - . | tar -xf - -C /build && cd /build
   cargo build --release
   cargo test --release --lib 2>&1 | tail -3
   OUT=/out sh packaging/debian/build-deb.sh /build/target/release/svmonitor amd64

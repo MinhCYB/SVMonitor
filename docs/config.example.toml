@@ -13,7 +13,7 @@ max_parallel_probes = 4
 check_tailscale = true        # classify tailnet hosts via the local tailscaled socket
 notifications = true
 notify_cooldown_secs = 900    # same event kind for same server at most every 15 min
-terminal = ""                 # "" = auto-detect; e.g. "kitty", "alacritty", "gnome-terminal"
+terminal = ""                 # "" = desktop/user default via xdg-terminal-exec; or app-only argv prefix
 history_max_events = 2000
 keep_samples = true           # also write samples.jsonl (one line per poll)
 

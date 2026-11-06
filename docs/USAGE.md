@@ -29,6 +29,27 @@ or local tailscaled is down; nothing is alerted), **monitoring off**.
 | `autostart enable|disable|status` | XDG autostart entry |
 | `reload`, `paths`, `doctor` | maintenance |
 
+`svmonitor reload` and `systemctl --user reload svmonitor.service` apply configuration in the existing
+process; neither restarts monitoring nor creates another instance. Invalid TOML is rejected and the
+previous valid configuration remains active (the error is logged in the journal).
+
+### Default terminal
+
+Leave `general.terminal = ""` to use the desktop/user terminal through
+[`xdg-terminal-exec`](https://github.com/Vladimir-csp/xdg-terminal-exec).
+This dispatcher follows XDG terminal preferences (`~/.config/xdg-terminals.list` and desktop-specific
+variants) and terminal desktop entries; SVMonitor does not create or modify those preferences.
+On Arch/CachyOS install `xdg-terminal-exec`; on Debian use the distro package when available.
+Without it, SVMonitor uses an explicitly selected `$TERMINAL` or Debian's `x-terminal-emulator`
+alternative, not a priority list of installed emulators. If no resolver is available, configure an
+override instead of silently choosing an unrelated terminal.
+
+For an application-only override use, for example, `terminal = "kitty"`,
+`terminal = "konsole"`, or an argument prefix such as `terminal = '"/opt/My Terminal/bin/term" --run'`.
+Quoted paths and arguments are supported; shell substitutions, pipes and redirections are not
+executed. SSH is appended as separate arguments, preserving aliases, ssh-agent and host-key policy.
+
+
 ## Tray menu
 Per server submenu: status, SSH/Tailscale state, CPU/RAM/swap/disk/load/uptime, last events, **Open SSH terminal**, **Check now**,
 **Monitoring enabled**, **Remove**. Global: Check all, Add from SSH config, Mute notifications 1 h, autostart, open config/history, Quit.
@@ -45,7 +66,7 @@ Per server submenu: status, SSH/Tailscale state, CPU/RAM/swap/disk/load/uptime, 
 | "host key not verified" | Run `ssh <alias>` once interactively. |
 | "authentication failed" | Key not loaded: `ssh-add`; background probes cannot ask for passphrases. Test `ssh -o BatchMode=yes <alias> true`. |
 | "remote command failed / output not recognised" | Remote login shell prints extra output or `RemoteCommand`/`ForceCommand` is set. |
-| Open SSH does nothing | Set `general.terminal` (e.g. `"kitty"`). |
+| Open SSH does nothing | Install `xdg-terminal-exec`, or configure `general.terminal`. The installed dispatcher follows the desktop's terminal choice; no system preference is changed. |
 | Marked "local network issue" | No default route or local tailscaled stopped; resolves itself. |
 | Another instance error | `svmonitor` allows one instance per user (flock). |
 

@@ -27,7 +27,7 @@ Section: net
 Priority: optional
 Architecture: $ARCH
 Depends: libc6 (>= 2.36), libgcc-s1, openssh-client
-Suggests: tailscale, gnome-shell-extension-appindicator
+Suggests: tailscale, xdg-terminal-exec, gnome-shell-extension-appindicator
 Installed-Size: $SIZE
 Maintainer: SVMonitor contributors <svmonitor@localhost>
 Homepage: https://github.com/svmonitor/svmonitor

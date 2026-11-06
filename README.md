@@ -22,7 +22,7 @@ cd packaging/arch && makepkg -si
 Debian / Ubuntu (build in a Debian 12 container for broad glibc compatibility, needs docker):
 
 ```sh
-packaging/debian/docker-build.sh && sudo apt install ./dist/svmonitor_0.1.0_amd64.deb
+packaging/debian/docker-build.sh && sudo apt install ./dist/svmonitor_0.1.1_amd64.deb
 ```
 
 From source (Rust >= 1.85):
