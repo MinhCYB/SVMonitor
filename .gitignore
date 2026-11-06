@@ -5,3 +5,28 @@
 /packaging/arch/src
 /packaging/arch/pkg
 /packaging/arch/*.tar.gz
+
+# Local credentials and machine-specific configuration must never be published.
+.env
+.env.*
+!.env.example
+/.ssh/
+/config.toml
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+
+# Runtime state, capture intermediates, editor files and generated source packages.
+*.log
+*.jsonl
+/state.json
+*.tmp
+*.swp
+*~
+/.vscode/
+/.idea/
+/packaging/arch/*.src.tar.*
+/packaging/arch/*.log

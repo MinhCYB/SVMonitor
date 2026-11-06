@@ -1,6 +1,6 @@
 [Unit]
 Description=SVMonitor server monitor
-Documentation=https://github.com/svmonitor/svmonitor
+Documentation=https://github.com/MinhCYB/SVMonitor
 After=graphical-session.target
 PartOf=graphical-session.target
 

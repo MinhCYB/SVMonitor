@@ -1,38 +1,60 @@
-# Compatibility and known limits
+# Compatibility and known limits — v0.1.1
 
-## Distributions
-| Target | Status |
+## Distributions and builds
+
+| Target | Evidence |
 |---|---|
-| CachyOS / Arch | **Built and tested on CachyOS** (this machine): `makepkg` → `svmonitor-0.1.0-1-x86_64.pkg.tar.zst`; runtime deps `openssh gcc-libs glibc`. Package contents verified; *not installed with pacman* (needs root). |
-| Debian 12 / 13 | `.deb` built **inside a Debian 12 container** (glibc 2.36, binary needs ≥ GLIBC_2.34), unit tests run there. Install/remove test: see below. Ubuntu 22.04+ shares glibc ≥ 2.35 → expected to work, **not tested**. |
-| Other | Any glibc ≥ 2.34 x86_64 with OpenSSH. musl/aarch64: `cargo build` should work, **not tested**. |
+| CachyOS / Arch x86_64 | Built with `makepkg` as `svmonitor-0.1.1-1-x86_64.pkg.tar.zst`; package contents and packaged binary checked. User-local installed binary exercised on CachyOS. System-wide `pacman -U` was not run (requires root). |
+| Debian 12 / 13 amd64 | `.deb` built inside Debian 12 (glibc 2.36); binary references up to GLIBC_2.34. Installation, repeated SIGHUP, graceful shutdown and removal tested in Debian 12/13 containers. Desktop sessions not tested there. |
+| Ubuntu / other glibc distributions | Not tested. The `.deb` declares libc6 >= 2.36; do not assume installation works on releases with older glibc. Build from source for a different baseline. |
+| aarch64 / musl | Not verified. |
 
-Binary: dynamic against libc and libgcc_s only. No GTK/Qt/OpenSSL/libdbus: D-Bus via pure-Rust zbus.
+Build tools: Rust/Cargo **1.89 or newer** for the committed dependency lockfile, plus a C linker.
+Runtime links to libc and libgcc_s. The binary needs no GTK/Qt/OpenSSL/libdbus; zbus handles D-Bus in Rust.
 
-## Desktops
-| DE | Tray | Notifications |
+## Desktop sessions
+
+| Desktop | Tray | Verification |
 |---|---|---|
-| KDE Plasma | native StatusNotifierItem | native (**not tested here**) |
-| GNOME | needs *AppIndicator and KStatusNotifierItem Support* extension (not installed on the test machine → icon cannot be shown; verified with a fake watcher on a private bus) | **verified on real GNOME 3x/Wayland session** |
-| XFCE/Cinnamon/MATE/Budgie, waybar/noctalia | StatusNotifier hosts exist; **not tested** | standard |
-| No tray host | automatic headless mode; `status`, `check`, notifications keep working | — |
+| GNOME 51 / Wayland | Requires AppIndicator and KStatusNotifierItem Support extension | Real tray/submenus, SSH metrics, notifications and terminal launch exercised on CachyOS. |
+| KDE Plasma | Native StatusNotifierItem host | Not tested directly. |
+| XFCE/Cinnamon/MATE/Budgie, waybar/noctalia | Requires an appropriate StatusNotifier host/plugin | Not tested directly. |
+| No tray host | Monitoring, notifications and CLI continue; icon attaches if a host appears | Headless paths tested; use `run --headless` explicitly without a desktop. |
 
-## Limits
-- Remote hosts must be Linux with a POSIX `sh`, `/proc`, `df` (BusyBox ok in principle, untested). macOS/BSD targets unsupported.
-- Passphrase-protected keys must be in ssh-agent; probes never prompt. Unknown host keys must be accepted once manually.
-- One `ssh` process per server per poll; with `ControlMaster` configured by the user it is reused, SVMonitor never starts masters itself.
-- CPU% on the very first poll uses a 1 s on-server sample; later polls use deltas between polls.
-- Disk list capped at 8 filesystems; tmpfs/overlay/squashfs excluded.
-- No graphs, no remote actions, no multi-user daemon. History is local JSONL.
-- Tray icon is a single coloured dot (worst state) drawn in-process; per-server state is in the menu/tooltip.
-- `.deb`/PKGBUILD are unsigned and local; nothing is published.
+The README screenshot is a real metrics submenu rendered from the running application's D-Bus menu
+by a GTK/libdbusmenu host on CachyOS. Only that widget is captured: no server names, desktop windows
+or personal paths are included. Popup styling differs between desktop hosts.
 
-## Default terminal ("Open SSH")
-Resolution order when `general.terminal` is empty: `xdg-terminal-exec` (follows `xdg-terminals.list` / desktop entries, so GNOME, KDE and
-others get *their* terminal) -> GNOME/Unity `gsettings` terminal (only when `XDG_CURRENT_DESKTOP` names GNOME/Unity) -> `$TERMINAL` ->
-Debian `x-terminal-emulator` -> error. There is no built-in priority list of emulators. An explicit `general.terminal` always wins and is
-parsed as an argv (quotes/escapes, no shell).
-- **Verified here (CachyOS, GNOME 51 Wayland):** with `xdg-terminal-exec` resolves to `org.gnome.Console` (kgx); tray click and `svmonitor ssh` both open it with `ssh -- catplus` as a child; explicit override with a spaced path and quoted args delivers the exact argv.
-- **Not verified:** KDE/Konsole, XFCE, Debian `x-terminal-emulator`, `$TERMINAL`, non-GNOME `gsettings` behaviour (covered by unit tests with injected environments only).
-- `xdg-terminal-exec` is an optional dependency (Arch `extra/xdg-terminal-exec`; Debian package availability not checked). GNOME 51 here points its terminal setting at `xdg-terminal-exec` but did not have it installed; without it (or an override) Open SSH reports an actionable error instead of guessing a terminal.
-- KDE's `kdeglobals` `TerminalApplication` is deliberately not parsed; KDE users get their terminal through `xdg-terminal-exec` or an override.
+## Default terminal
+
+With `general.terminal = ""`, resolution is:
+
+1. `xdg-terminal-exec`, following XDG terminal preferences and desktop entries.
+2. Native GNOME/Unity `gsettings` terminal, only in those desktop sessions.
+3. Explicit `$TERMINAL` environment preference.
+4. Debian's `x-terminal-emulator` alternative.
+5. An actionable error; no arbitrary list of installed emulators is scanned.
+
+An explicit SVMonitor terminal override wins. It is parsed as argv (quotes/escapes, no shell).
+GNOME Console selected through `xdg-terminal-exec`, the real tray action and CLI launcher were tested
+on GNOME 51 Wayland. Quoted paths/arguments were checked with a recording terminal wrapper.
+KDE/Konsole, XFCE and distro fallback execution were not tested live; resolution edge cases have unit tests.
+KDE's `kdeglobals` is not parsed by SVMonitor: use the XDG dispatcher or an explicit override.
+The XDG default-terminal specification is still a proposal; SVMonitor delegates interpretation to
+[the dispatcher](https://github.com/Vladimir-csp/xdg-terminal-exec), not a second custom desktop-entry parser.
+
+## Current limits
+
+- Remote systems must be Linux with POSIX `sh`, `/proc` and `df`; BSD/macOS metrics are unsupported.
+  BusyBox portability has not been verified on a real remote host.
+- Passphrase-protected keys must already be available through ssh-agent. Unknown host keys must be
+  verified interactively first. Probes never prompt or bypass host-key verification.
+- Each server uses one short-lived SSH probe per poll; an existing OpenSSH multiplexed master may
+  be reused, but SVMonitor does not start persistent masters.
+- CPU's first poll uses a one-second remote sample; subsequent polls use counter deltas.
+- At most eight disk rows are retained; pseudo-filesystems are excluded where `df` supports it.
+- Local network attribution checks default routes and local Tailscale state, not a full Internet
+  connectivity proof. A default route can exist while upstream connectivity is broken.
+- No graphs or remote administration actions. History is local, size-rotated JSONL.
+- Measurements cover minutes and accelerated probes, not multi-day 24/7 operation.
+- Source and packaging scripts are public; no binary release or package repository is provided here.

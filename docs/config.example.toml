@@ -26,7 +26,7 @@ load_per_core = 4.0
 samples = 3
 
 [[server]]
-name = "catplus"              # an alias from ~/.ssh/config
+name = "my-server"            # an alias from ~/.ssh/config
 
 # Manual server (no alias): connect to host directly.
 # [[server]]

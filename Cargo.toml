@@ -5,7 +5,9 @@ edition = "2024"
 description = "Lightweight SSH-based server monitor with system tray for Linux"
 license = "MIT"
 readme = "README.md"
-rust-version = "1.85"
+rust-version = "1.89"
+repository = "https://github.com/MinhCYB/SVMonitor"
+homepage = "https://github.com/MinhCYB/SVMonitor"
 
 [lib]
 name = "svmonitor"

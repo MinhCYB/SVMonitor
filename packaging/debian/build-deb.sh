@@ -8,6 +8,10 @@ BIN=${1:-$ROOT/target/release/svmonitor}
 ARCH=${2:-$(dpkg --print-architecture 2>/dev/null || echo amd64)}
 VER=$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/Cargo.toml" | head -1)
 OUT=${OUT:-$ROOT/dist}
+if [ ! -f "$BIN" ]; then
+    echo "Error: binary not found at $BIN" >&2
+    exit 1
+fi
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 P=$W/svmonitor_${VER}_${ARCH}
@@ -30,13 +34,15 @@ Depends: libc6 (>= 2.36), libgcc-s1, openssh-client
 Suggests: tailscale, xdg-terminal-exec, gnome-shell-extension-appindicator
 Installed-Size: $SIZE
 Maintainer: SVMonitor contributors <svmonitor@localhost>
-Homepage: https://github.com/svmonitor/svmonitor
+Homepage: https://github.com/MinhCYB/SVMonitor
 Description: Lightweight SSH server monitor with system tray
  Monitors Linux servers over your existing OpenSSH configuration. No agent
  or service is installed on the servers; metrics are collected read-only.
  Provides a StatusNotifier tray icon, desktop notifications, quick SSH,
  event history and a headless CLI.
 CTL
+find "$P" -type d -exec chmod 0755 {} +
+chmod 0644 "$P/DEBIAN/control"
 mkdir -p "$OUT"
 dpkg-deb --root-owner-group --build "$P" "$OUT/svmonitor_${VER}_${ARCH}.deb" >/dev/null
 echo "$OUT/svmonitor_${VER}_${ARCH}.deb"

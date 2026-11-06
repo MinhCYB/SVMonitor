@@ -93,10 +93,10 @@ pub fn read_events(path: &Path, server: Option<&str>, limit: usize) -> Vec<Event
     for p in [PathBuf::from(old), path.to_path_buf()] {
         if let Ok(f) = File::open(&p) {
             for line in BufReader::new(f).lines().map_while(Result::ok) {
-                if let Ok(e) = serde_json::from_str::<Event>(&line) {
-                    if server.is_none_or(|s| e.server == s) {
-                        all.push(e);
-                    }
+                if let Ok(e) = serde_json::from_str::<Event>(&line)
+                    && server.is_none_or(|s| e.server == s)
+                {
+                    all.push(e);
                 }
             }
         }

@@ -300,10 +300,10 @@ impl Tracker {
         self.last_ok = Some(ctx.now);
 
         let mut m = sample.metrics;
-        if m.cpu_pct.is_none() {
-            if let (Some(prev), Some(cur)) = (self.prev_cpu, sample.cpu) {
-                m.cpu_pct = metrics::cpu_pct(&prev, &cur);
-            }
+        if m.cpu_pct.is_none()
+            && let (Some(prev), Some(cur)) = (self.prev_cpu, sample.cpu)
+        {
+            m.cpu_pct = metrics::cpu_pct(&prev, &cur);
         }
         self.prev_cpu = sample.cpu;
 
@@ -333,16 +333,16 @@ impl Tracker {
         }
         self.down_since = None;
 
-        if let Some(prev_up) = self.last_uptime {
-            if m.uptime_secs + 30 < prev_up {
-                events.push(self.ev(
-                    ctx,
-                    EventKind::Rebooted,
-                    "reboot",
-                    true,
-                    "server rebooted".into(),
-                ));
-            }
+        if let Some(prev_up) = self.last_uptime
+            && m.uptime_secs + 30 < prev_up
+        {
+            events.push(self.ev(
+                ctx,
+                EventKind::Rebooted,
+                "reboot",
+                true,
+                "server rebooted".into(),
+            ));
         }
         self.last_uptime = Some(m.uptime_secs);
 

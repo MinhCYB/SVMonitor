@@ -5,7 +5,7 @@ Tool: `scripts/bench.sh` samples `/proc/<pid>` once per second; CPU = utime+stim
 from `cutime/cstime`) divided by wall time. One tick = 10 ms, so the resolution is about 0.01-0.03% over these windows; treat
 values as upper-bound estimates, not precise.
 
-Idle scenario = real `catplus` over real SSH (Tailscale, 6-core VPS), poll interval 60 s, tray enabled (no tray host on this GNOME).
+Idle scenario = a real test VPS over SSH (Tailscale, 6-core VPS), poll interval 60 s, tray enabled (no tray host during the initial measurement).
 Outage scenario = two unreachable targets (blackhole 192.0.2.1, refused 127.0.0.1:1), default retry/backoff.
 
 | Scenario (final binary) | Duration | RSS avg / max | Threads max | FDs | Max ssh children | CPU daemon | CPU ssh children | CPU total |
@@ -41,7 +41,7 @@ Same machine, scenarios and tooling as above; release binary `target/release/svm
 
 | Scenario | Duration | RSS avg / max | Threads max | FDs | CPU daemon | CPU ssh children | CPU total |
 |---|---|---|---|---|---|---|---|
-| Idle, tray, 1 server @60 s (real `catplus`) | 240 s | 6.4 / 6.4 MiB | 9 | 10 | 0.013% | 0.025% | **0.037%** |
+| Idle, tray, 1 server @60 s (real test VPS) | 240 s | 6.4 / 6.4 MiB | 9 | 10 | 0.013% | 0.025% | **0.037%** |
 | Outage, tray, 2 servers down | 120 s | 6.3 / 6.5 MiB | 9 | 10 | 0.033% | 0.042% | **0.075%** |
 
 Soak (3 fake servers, 5 s interval, 330 s): RSS 4600 -> 4608 KiB, fds 6 -> 6, threads 2 -> 2, zombies 0.

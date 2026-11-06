@@ -94,10 +94,10 @@ struct TsCache {
 impl TsCache {
     fn get(&self) -> tailscale::Status {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((t, s)) = g.as_ref() {
-            if t.elapsed() < Duration::from_secs(5) {
-                return s.clone();
-            }
+        if let Some((t, s)) = g.as_ref()
+            && t.elapsed() < Duration::from_secs(5)
+        {
+            return s.clone();
         }
         let s = tailscale::fetch(
             std::path::Path::new(tailscale::SOCKET),
@@ -456,12 +456,12 @@ impl Engine {
         }
         let slot = &mut self.slots[i];
         let in_grace = self.grace_until.is_some();
-        if let (true, Outcome::Fail { kind, .. }) = (in_grace, &outcome) {
-            if kind.is_connectivity() || *kind == FailKind::Dns {
-                // Just resumed from suspend: the network is probably still coming up.
-                slot.due = Instant::now() + Duration::from_secs(5);
-                return;
-            }
+        if let (true, Outcome::Fail { kind, .. }) = (in_grace, &outcome)
+            && (kind.is_connectivity() || *kind == FailKind::Dns)
+        {
+            // Just resumed from suspend: the network is probably still coming up.
+            slot.due = Instant::now() + Duration::from_secs(5);
+            return;
         }
         let ctx = Context {
             now: now_u,
@@ -480,10 +480,10 @@ impl Engine {
             } else {
                 Duration::ZERO
             };
-        if slot.tracker.ssh == SshState::Available {
-            if let Some(m) = &slot.tracker.metrics {
-                self.history.record_sample(&slot.server.name, m);
-            }
+        if slot.tracker.ssh == SshState::Available
+            && let Some(m) = &slot.tracker.metrics
+        {
+            self.history.record_sample(&slot.server.name, m);
         }
         self.emit(events);
     }
@@ -495,14 +495,13 @@ impl Engine {
                 s(&e);
             }
             let muted = util::now_unix() < self.muted_until;
-            if let Some(n) = &self.notifier {
-                if !muted
-                    && self
-                        .limiter
-                        .allow(&e, self.cfg.general.notify_cooldown_secs)
-                {
-                    n.show(notify::toast_for(&e));
-                }
+            if let Some(n) = &self.notifier
+                && !muted
+                && self
+                    .limiter
+                    .allow(&e, self.cfg.general.notify_cooldown_secs)
+            {
+                n.show(notify::toast_for(&e));
             }
         }
     }

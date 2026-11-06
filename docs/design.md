@@ -1,6 +1,6 @@
 # SVMonitor design (V1)
 
-Decisions made autonomously per the project brief (no per-phase approval).
+This document describes V1 and notes where the implemented v0.1.1 behavior differs from the initial sketch.
 
 ## Goals / non-goals
 - Goal: tray + CLI monitor for Linux servers reachable through the user's existing OpenSSH setup. Idle RSS <= 20 MiB, ~0 CPU.
@@ -9,37 +9,36 @@ Decisions made autonomously per the project brief (no per-phase approval).
 ## Findings that drove the design
 | Finding | Consequence |
 |---|---|
-| No MeshPerch code on the machine | Nothing to reuse; greenfield |
-| GNOME/Wayland here has **no StatusNotifierWatcher** (no AppIndicator extension) | Tray must degrade to headless without crashing, tell the user how to fix it, and attach automatically if a watcher appears later (`assume_sni_available`) |
-| `catplus` uses Tailscale MagicDNS name, `StrictHostKeyChecking ask`, `ControlMaster false` | Probe through system `ssh`; never override host-key policy; classify "host key unknown" separately from "offline" |
-| tailscaled LocalAPI socket is world rw | Query peer state over the unix socket (no process spawn) |
-| Rust absent; Debian 12 ships rustc 1.63 | Install via rustup for dev; build Debian package inside a Debian container with rustup for glibc compatibility |
+| Existing OpenSSH setup | Reuse keys, ssh-agent, Include, ProxyJump and known_hosts rather than implementing a second SSH client |
+| A GNOME session may lack a StatusNotifierWatcher | Continue headless and attach when a tray host appears; GNOME needs an AppIndicator extension |
+| A test VPS uses a Tailscale MagicDNS name | Keep Tailscale peer state separate from SSH reachability; never override host-key policy |
+| tailscaled exposes a local status API | Read status over its Unix socket; tolerate missing/unreadable Tailscale |
+| Distro glibc/toolchain versions differ | Build Debian packages inside Debian 12; use Rust >= 1.89 for the current lockfile |
 
 ## Architecture
-Single process, plain threads, **no async runtime**. One event-loop thread (`engine`) blocks on an mpsc channel with a timeout equal to the next due probe, so idle wake-ups happen only when a probe is due.
+The monitoring scheduler uses plain threads and an mpsc channel, without a Tokio runtime. Tray/D-Bus dependencies use async-io internally. The engine blocks until a command/result arrives or the next poll is due.
 
-```
-signal thread ─┐
-inotify thread ─┤            ┌──────────────┐  Snapshot   ┌──────────┐
-tray callbacks ─┼─ Cmd ────▶ │  engine loop │ ──────────▶ │ tray(ksni)│
-probe workers ──┘            │ (scheduler,  │             └──────────┘
-                             │  health SM,  │ ──▶ notifier (D-Bus Notify, rate limited)
-                             │  history)    │ ──▶ history JSONL, state.json
-                             └──────────────┘
-probe worker (1 short-lived thread / due server, max 4 parallel):
-  tailscale LocalAPI status (cached 5 s) + local-network check + `ssh -T … sh -s` (script on stdin)
+```mermaid
+flowchart LR
+    signals[Signal thread: reload or shutdown] --> engine[Monitoring engine]
+    tray[Tray actions] --> engine
+    workers[Bounded probe workers] --> engine
+    engine --> snapshot[Snapshot and tray update]
+    engine --> history[Rotated JSONL history]
+    engine --> notify[D-Bus notifications]
+    engine --> workers
 ```
 
 ### Probing
 - One `ssh` process per server per cycle; the remote script is POSIX `sh`, uses shell builtins (`read`) for `/proc`, one `df` fork. Read-only, no sudo, no agent.
 - Flags added: `BatchMode=yes`, `ConnectTimeout`, `ServerAlive*`, `ClearAllForwardings=yes`, `ForwardAgent=no`, `ForwardX11=no`, `PermitLocalCommand=no`, `RemoteCommand=none`, `RequestTTY=no`. Host key checking, identities, ProxyJump, Include etc. come from the user's config untouched.
 - Hard deadline enforced by killing the ssh process group.
-- CPU% is computed from `/proc/stat` deltas between consecutive polls (no sleep on the remote).
+- CPU% uses `/proc/stat` deltas; the first poll adds a one-second sampling window on the remote.
 
 ### Three independent dimensions (no false "offline")
 1. **Tailscale**: `NotApplicable | LocalDown | PeerOnline | PeerOffline | Unmatched`.
 2. **SSH**: `Unknown | Available | Unavailable(kind)`; kinds: Timeout, Refused, NoRoute, Reset, Dns, Auth, HostKey, Spawn, Other.
-3. **Health**: thresholds (CPU/RAM/swap/disk/load) with 2-sample persistence and hysteresis.
+3. **Health**: thresholds (CPU/RAM/swap/disk/load), default 3-sample persistence and hysteresis.
 
 Overall state: `Unknown | Online | Warning | Down | Attention | LocalIssue | Disabled`.
 - Auth/HostKey/Dns/Spawn → `Attention` (never "offline").
@@ -56,7 +55,7 @@ Overall state: `Unknown | Online | Warning | Down | Attention | LocalIssue | Dis
 - Runtime `state.json` in `$XDG_RUNTIME_DIR/svmonitor/` + flock single-instance lock.
 
 ### Why not…
-- tokio/async: not needed, costs RSS.
+- Tokio: not needed for the scheduler; tray/D-Bus still use a lightweight async-io executor internally.
 - SQLite: extra C dependency; JSONL is enough for append + tail.
 - libssh2/russh: would bypass ssh-agent/ProxyJump/Include/known_hosts semantics the product promises to reuse.
 - GTK/Qt tray: heavy; SNI over D-Bus (ksni) is native to KDE/GNOME(extension)/others.

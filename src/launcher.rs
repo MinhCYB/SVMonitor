@@ -560,8 +560,8 @@ mod tests {
 
     #[test]
     fn ssh_alias_vs_manual() {
-        let a = ssh_command("ssh", &Server::alias("catplus"));
-        assert_eq!(a, vec!["ssh", "--", "catplus"]);
+        let a = ssh_command("ssh", &Server::alias("my-server"));
+        assert_eq!(a, vec!["ssh", "--", "my-server"]);
         let m = Server {
             host: Some("h".into()),
             user: Some("u".into()),

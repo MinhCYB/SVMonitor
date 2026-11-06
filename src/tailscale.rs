@@ -130,13 +130,13 @@ mod tests {
     use super::*;
 
     const JSON: &str = r#"{"BackendState":"Running","Peer":{
-      "k1":{"HostName":"catplus","DNSName":"vps-h2xvp-catplus.tail7ed957.ts.net.","TailscaleIPs":["100.125.99.6","fd7a:115c:a1e0::1"],"Online":true},
-      "k2":{"HostName":"gone","DNSName":"gone.tail7ed957.ts.net.","TailscaleIPs":["100.1.1.1"],"Online":false}}}"#;
+      "k1":{"HostName":"test-server","DNSName":"test-server.tail-example.ts.net.","TailscaleIPs":["100.64.0.10","fd7a:115c:a1e0::1"],"Online":true},
+      "k2":{"HostName":"gone","DNSName":"gone.tail-example.ts.net.","TailscaleIPs":["100.64.0.11"],"Online":false}}}"#;
 
     #[test]
     fn detects_tailnet_hosts() {
         assert!(looks_like_tailnet("x.tail1.ts.net"));
-        assert!(looks_like_tailnet("100.125.99.6"));
+        assert!(looks_like_tailnet("100.64.0.10"));
         assert!(looks_like_tailnet("fd7a:115c:a1e0::1"));
         assert!(!looks_like_tailnet("100.200.1.1"));
         assert!(!looks_like_tailnet("192.168.0.1"));
@@ -147,16 +147,16 @@ mod tests {
     fn classifies_peers() {
         let st = parse_status(JSON).unwrap();
         assert_eq!(
-            classify("vps-h2xvp-catplus.tail7ed957.ts.net", &st),
+            classify("test-server.tail-example.ts.net", &st),
             TsState::PeerOnline
         );
-        assert_eq!(classify("100.125.99.6", &st), TsState::PeerOnline);
+        assert_eq!(classify("100.64.0.10", &st), TsState::PeerOnline);
         assert_eq!(
-            classify("gone.tail7ed957.ts.net", &st),
+            classify("gone.tail-example.ts.net", &st),
             TsState::PeerOffline
         );
         assert_eq!(
-            classify("nobody.tail7ed957.ts.net", &st),
+            classify("nobody.tail-example.ts.net", &st),
             TsState::PeerNotFound
         );
         assert_eq!(classify("example.com", &st), TsState::NotApplicable);

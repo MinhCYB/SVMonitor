@@ -527,10 +527,10 @@ pub fn print_table(s: &Snapshot) {
         if let (Overall::Down, Some(d)) = (v.overall, v.down_since) {
             detail = format!("down {} — {detail}", fmt_duration((s.ts - d).max(0) as u64));
         }
-        if detail.is_empty() {
-            if let Some(t) = v.last_check {
-                detail = format!("checked {}", fmt_ago(t, s.ts));
-            }
+        if detail.is_empty()
+            && let Some(t) = v.last_check
+        {
+            detail = format!("checked {}", fmt_ago(t, s.ts));
         }
         println!(
             "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}",

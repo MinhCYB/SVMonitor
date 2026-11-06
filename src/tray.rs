@@ -215,51 +215,51 @@ pub fn detail_lines(v: &ServerView, now: i64) -> Vec<String> {
         }
     ));
     out.push(format!("Tailscale: {}", v.tailscale.label()));
-    if let Some(m) = &v.metrics {
-        if v.ssh == SshState::Available || v.overall == Overall::Down {
-            let stale = if v.ssh == SshState::Available {
-                ""
-            } else {
-                " (last known)"
-            };
-            if let Some(c) = m.cpu_pct {
-                out.push(format!(
-                    "CPU: {c:.0}%{stale}  ({} cores)",
-                    m.cores.unwrap_or(0)
-                ));
-            } else {
-                out.push(format!("CPU: –  ({} cores){stale}", m.cores.unwrap_or(0)));
-            }
+    if let Some(m) = &v.metrics
+        && (v.ssh == SshState::Available || v.overall == Overall::Down)
+    {
+        let stale = if v.ssh == SshState::Available {
+            ""
+        } else {
+            " (last known)"
+        };
+        if let Some(c) = m.cpu_pct {
             out.push(format!(
-                "RAM: {:.0}%  {} / {}",
-                m.mem_pct(),
-                fmt_kib(m.mem_used_kib),
-                fmt_kib(m.mem_total_kib)
+                "CPU: {c:.0}%{stale}  ({} cores)",
+                m.cores.unwrap_or(0)
             ));
-            if let Some(sp) = m.swap_pct() {
-                out.push(format!(
-                    "Swap: {sp:.0}%  {} / {}",
-                    fmt_kib(m.swap_used_kib),
-                    fmt_kib(m.swap_total_kib)
-                ));
-            }
-            if let Some(d) = m.worst_disk() {
-                out.push(format!(
-                    "Disk {}: {:.0}%  {} / {}",
-                    d.mount,
-                    d.pct(),
-                    fmt_kib(d.used_kib),
-                    fmt_kib(d.total_kib)
-                ));
-            }
+        } else {
+            out.push(format!("CPU: –  ({} cores){stale}", m.cores.unwrap_or(0)));
+        }
+        out.push(format!(
+            "RAM: {:.0}%  {} / {}",
+            m.mem_pct(),
+            fmt_kib(m.mem_used_kib),
+            fmt_kib(m.mem_total_kib)
+        ));
+        if let Some(sp) = m.swap_pct() {
             out.push(format!(
-                "Load: {:.2} {:.2} {:.2}",
-                m.load[0], m.load[1], m.load[2]
+                "Swap: {sp:.0}%  {} / {}",
+                fmt_kib(m.swap_used_kib),
+                fmt_kib(m.swap_total_kib)
             ));
-            out.push(format!("Uptime: {}", fmt_duration(m.uptime_secs)));
-            if let Some(os) = &m.os {
-                out.push(format!("OS: {os}"));
-            }
+        }
+        if let Some(d) = m.worst_disk() {
+            out.push(format!(
+                "Disk {}: {:.0}%  {} / {}",
+                d.mount,
+                d.pct(),
+                fmt_kib(d.used_kib),
+                fmt_kib(d.total_kib)
+            ));
+        }
+        out.push(format!(
+            "Load: {:.2} {:.2} {:.2}",
+            m.load[0], m.load[1], m.load[2]
+        ));
+        out.push(format!("Uptime: {}", fmt_duration(m.uptime_secs)));
+        if let Some(os) = &m.os {
+            out.push(format!("OS: {os}"));
         }
     }
     if let Some(t) = v.last_check {

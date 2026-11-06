@@ -26,10 +26,10 @@ impl Limiter {
             | EventKind::Down
             | EventKind::Attention
             | EventKind::ThresholdBreach => {
-                if let Some(prev) = self.last.get(&k) {
-                    if e.ts - prev < cooldown_secs as i64 {
-                        return false;
-                    }
+                if let Some(prev) = self.last.get(&k)
+                    && e.ts - prev < cooldown_secs as i64
+                {
+                    return false;
                 }
                 self.last.insert(k.clone(), e.ts);
                 if e.kind != EventKind::Rebooted {

@@ -151,19 +151,17 @@ pub fn parse(output: &str, ts: i64) -> Result<RawSample, ParseError> {
             "disk" => {
                 if disks.len() < MAX_DISKS {
                     let mut it = v.splitn(3, '|');
-                    if let (Some(t), Some(u), Some(m)) = (it.next(), it.next(), it.next()) {
-                        if let (Ok(t), Ok(u)) = (t.parse::<u64>(), u.parse::<u64>()) {
-                            if t > 0
-                                && !m.is_empty()
-                                && !disks.iter().any(|d: &DiskUsage| d.mount == m)
-                            {
-                                disks.push(DiskUsage {
-                                    mount: clean(m),
-                                    total_kib: t,
-                                    used_kib: u,
-                                });
-                            }
-                        }
+                    if let (Some(t), Some(u), Some(m)) = (it.next(), it.next(), it.next())
+                        && let (Ok(t), Ok(u)) = (t.parse::<u64>(), u.parse::<u64>())
+                        && t > 0
+                        && !m.is_empty()
+                        && !disks.iter().any(|d: &DiskUsage| d.mount == m)
+                    {
+                        disks.push(DiskUsage {
+                            mount: clean(m),
+                            total_kib: t,
+                            used_kib: u,
+                        });
                     }
                 }
             }

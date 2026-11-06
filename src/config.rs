@@ -149,20 +149,20 @@ impl Server {
             ("host", self.host.as_deref()),
             ("user", self.user.as_deref()),
         ] {
-            if let Some(v) = v {
-                if v.is_empty()
+            if let Some(v) = v
+                && (v.is_empty()
                     || v.starts_with('-')
-                    || v.chars()
-                        .any(|c| c.is_whitespace() || c.is_control() || c == '@' && label == "host")
-                {
-                    bail!("invalid {label}: {v:?}");
-                }
+                    || v.chars().any(|c| {
+                        c.is_whitespace() || c.is_control() || c == '@' && label == "host"
+                    }))
+            {
+                bail!("invalid {label}: {v:?}");
             }
         }
-        if let Some(i) = &self.identity_file {
-            if i.starts_with('-') || i.chars().any(|c| c.is_control()) {
-                bail!("invalid identity_file");
-            }
+        if let Some(i) = &self.identity_file
+            && (i.starts_with('-') || i.chars().any(|c| c.is_control()))
+        {
+            bail!("invalid identity_file");
         }
         Ok(())
     }
@@ -320,7 +320,7 @@ mod tests {
     #[test]
     fn defaults_valid_and_roundtrip() {
         let mut c = Config::default();
-        c.add(Server::alias("catplus")).unwrap();
+        c.add(Server::alias("my-server")).unwrap();
         c.add(Server {
             host: Some("10.0.0.1".into()),
             user: Some("root".into()),

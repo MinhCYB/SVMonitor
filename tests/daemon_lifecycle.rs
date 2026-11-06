@@ -153,10 +153,10 @@ impl TestDaemon {
                     self.snapshot_path().display()
                 );
             }
-            if let Some(snap) = self.try_read_snapshot() {
-                if snap.pid != 0 {
-                    return snap;
-                }
+            if let Some(snap) = self.try_read_snapshot()
+                && snap.pid != 0
+            {
+                return snap;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -182,12 +182,11 @@ impl TestDaemon {
                     "daemon died with status {st:?} while waiting for server {name}; stderr: {err}"
                 );
             }
-            if let Some(snap) = self.try_read_snapshot() {
-                if let Some(s) = snap.servers.into_iter().find(|s| s.name == name) {
-                    if predicate(&s) {
-                        return s;
-                    }
-                }
+            if let Some(snap) = self.try_read_snapshot()
+                && let Some(s) = snap.servers.into_iter().find(|s| s.name == name)
+                && predicate(&s)
+            {
+                return s;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
@@ -372,11 +371,11 @@ fn reload_applies_server_mutations() {
     let deadline = Instant::now() + Duration::from_secs(3);
     let mut removed = false;
     while Instant::now() < deadline {
-        if let Some(snap) = daemon.try_read_snapshot() {
-            if !snap.servers.iter().any(|s| s.name == "beta") {
-                removed = true;
-                break;
-            }
+        if let Some(snap) = daemon.try_read_snapshot()
+            && !snap.servers.iter().any(|s| s.name == "beta")
+        {
+            removed = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }

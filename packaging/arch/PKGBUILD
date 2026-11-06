@@ -5,7 +5,7 @@ pkgver=0.1.1
 pkgrel=1
 pkgdesc='Lightweight SSH server monitor with system tray (no agents on servers)'
 arch=('x86_64' 'aarch64')
-url='https://github.com/svmonitor/svmonitor'
+url='https://github.com/MinhCYB/SVMonitor'
 license=('MIT')
 depends=('openssh' 'gcc-libs' 'glibc')
 makedepends=('cargo')
@@ -14,23 +14,23 @@ optdepends=('tailscale: Tailscale peer awareness'
  'gnome-shell-extension-appindicator: tray icon on GNOME')
 source=()
 # Local build: the tarball is created from the repository this PKGBUILD lives in.
-_repo="$(cd "$startdir/../.." && pwd)"
+_repo="$(cd "${startdir:-$(dirname "${BASH_SOURCE[0]:-$0}")}/../.." && pwd)"
 
 prepare() {
   rm -rf "$srcdir/$pkgname"
   mkdir -p "$srcdir/$pkgname"
-  (cd "$_repo" && tar --exclude=./target --exclude=./.git --exclude='./packaging/*/src' --exclude='./packaging/*/pkg' -cf - .) | tar -xf - -C "$srcdir/$pkgname"
+    (cd "$_repo" && tar --exclude=./target --exclude=./dist --exclude=./.git --exclude='./packaging/*/src' --exclude='./packaging/*/pkg' --exclude='*.pkg.tar.*' --exclude='*.deb' -cf - .) | tar -xf - -C "$srcdir/$pkgname"
 }
 
 build() {
   cd "$srcdir/$pkgname"
   export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
-  cargo build --frozen --release 2>/dev/null || cargo build --release
+    cargo build --frozen --release 2>/dev/null || cargo build --locked --release
 }
 
 check() {
   cd "$srcdir/$pkgname"
-  cargo test --release --lib 2>&1 | tail -3
+    cargo test --locked --release --lib
 }
 
 package() {
