@@ -14,4 +14,5 @@ pub mod probe;
 pub mod sshconfig;
 pub mod tailscale;
 pub mod tray;
+pub mod tray_icon;
 pub mod util;

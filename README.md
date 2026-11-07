@@ -6,7 +6,7 @@ SVMonitor dành cho người dùng Linux quản lý một hay nhiều máy chủ
 nhận thông báo khi kết nối có vấn đề và mở terminal SSH mà không phải rời desktop.
 Ứng dụng viết bằng Rust, không Electron, WebView hay bộ giao diện nặng.
 
-> **v0.1.1** · Mã nguồn mở theo MIT · Đã sử dụng và kiểm thử trên CachyOS, GNOME 51, Wayland.
+> **v0.1.2** · Mã nguồn mở theo MIT · Native Linux tray, không thêm GUI framework.
 
 ## Có gì nổi bật?
 
@@ -25,13 +25,13 @@ nhận thông báo khi kết nối có vấn đề và mở terminal SSH mà kh�
 ## Giao diện thực tế
 
 <p align="center">
-  <img src="docs/images/metrics-menu.png" width="307" alt="Submenu SVMonitor thực tế: trạng thái SSH, Tailscale, CPU, RAM, swap, disk, load và uptime" />
+  <img src="docs/images/metrics-menu.png" width="283" alt="Submenu SVMonitor v0.1.2 thực tế: SSH, Tailscale, CPU, RAM, disk và mục Details" />
 </p>
 
 Ảnh chụp submenu **đang chạy với metrics thật** trên CachyOS. Để không đưa tên máy chủ và nội dung
 màn hình cá nhân lên mạng, ảnh chỉ lấy vùng submenu; menu D-Bus của ứng dụng được hiển thị bằng
 host GTK/libdbusmenu để chụp. Giao diện popup của GNOME/KDE có thể khác theo theme.
-Không dựng lại thông số hoặc tạo dữ liệu minh họa.
+Không dựng lại thông số hoặc tạo dữ liệu minh họa. Swap, load, uptime và thông tin hệ thống nằm trong **Details**; Tailscale peer offline không ghi đè kết quả SSH đang hoạt động.
 
 ## Cài đặt
 
@@ -67,7 +67,7 @@ Docker của tài khoản hiện tại; script tải toolchain và dependency bu
 ```sh
 mkdir -p dist
 ./packaging/debian/docker-build.sh
-sudo apt install ./dist/svmonitor_0.1.1_amd64.deb
+sudo apt install ./dist/svmonitor_0.1.2_amd64.deb
 ```
 
 Đã kiểm thử cài đặt/gỡ gói và xử lý reload trong container Debian 12 và 13. Desktop Debian chưa
@@ -142,14 +142,14 @@ SVMonitor không đổi terminal mặc định của hệ thống và không gh�
 
 ## Nhẹ đến mức nào?
 
-Số liệu **đã đo**, release build v0.1.1 trên CachyOS. CPU dưới đây gồm daemon và các tiến trình SSH con:
+Số liệu **đã đo**, release build v0.1.2 trên CachyOS với GNOME AppIndicator host. CPU dưới đây gồm daemon và các tiến trình SSH con:
 
 | Kịch bản | Thời gian đo | RSS trung bình / cao nhất | CPU tổng |
 |---|---:|---:|---:|
-| Tray, 1 server thật, chu kỳ 60 giây | 240 giây | 6,4 / 6,4 MiB | 0,037% |
-| Tray, 2 đích không kết nối được | 120 giây | 6,3 / 6,5 MiB | 0,075% |
+| Tray, 1 server thật, chu kỳ 60 giây | 240 giây | 4,3 / 6,6 MiB | 0,046% |
+| Tray, 2 đích không kết nối được | 120 giây | 5,5 / 6,8 MiB | 0,092% |
 
-Soak test 330 giây, 3 server mô phỏng ở chu kỳ 5 giây: RSS 4600 → 4608 KiB,
+Soak test trước đó trên v0.1.1: 330 giây, 3 server mô phỏng ở chu kỳ 5 giây, RSS 4600 → 4608 KiB,
 file descriptor 6 → 6, thread 2 → 2, không có zombie process.
 Các phép đo ngắn này **không thay thế kiểm thử chạy nhiều ngày**; CPU có độ phân giải theo tick.
 Chi tiết và cách tái hiện: [benchmark](docs/BENCHMARKS.md).

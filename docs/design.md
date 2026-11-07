@@ -1,6 +1,6 @@
 # SVMonitor design (V1)
 
-This document describes V1 and notes where the implemented v0.1.1 behavior differs from the initial sketch.
+This document describes V1 and notes where implemented v0.1.2 behavior differs from the initial sketch.
 
 ## Goals / non-goals
 - Goal: tray + CLI monitor for Linux servers reachable through the user's existing OpenSSH setup. Idle RSS <= 20 MiB, ~0 CPU.
@@ -48,6 +48,9 @@ Overall state: `Unknown | Online | Warning | Down | Attention | LocalIssue | Dis
 
 ### Notifications
 `org.freedesktop.Notifications` via zbus; per-server replace-id so a server never stacks toasts; per-(server,kind) cooldown; recovery only after a delivered down notice; nothing during `LocalIssue`/grace.
+
+### Native tray presentation
+StatusNotifierItem exposes cached static ARGB rack/status pixmaps at 16/22/32/48 px. DBusMenu keeps host-native layout, themed action icons and text fallback; no GUI runtime, animation or extra monitoring polls. Server navigation is urgency-sorted and bounded to eight entries per group, with disabled servers separate. Detailed metrics and recent history are nested. Tooltip text is bounded and markup-escaped; user labels escape DBusMenu mnemonic underscores. Tray callbacks enqueue engine commands rather than waiting for engine replies while the tray lock is held.
 
 ### Persistence
 - Config `~/.config/svmonitor/config.toml` (atomic write). Servers refer to SSH aliases; optional manual host/user/port/identity.

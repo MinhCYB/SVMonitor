@@ -213,6 +213,8 @@ pub struct ServerView {
     pub tailscale: TsState,
     pub metrics: Option<Metrics>,
     pub last_check: Option<i64>,
+    #[serde(default)]
+    pub completed_checks: u64,
     pub last_ok: Option<i64>,
     pub down_since: Option<i64>,
     pub detail: String,

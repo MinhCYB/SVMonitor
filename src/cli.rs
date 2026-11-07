@@ -820,6 +820,7 @@ mod tests {
             tailscale: TsState::NotApplicable,
             metrics: None,
             last_check: None,
+            completed_checks: 0,
             last_ok: None,
             down_since: None,
             detail: String::new(),

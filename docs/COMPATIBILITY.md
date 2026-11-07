@@ -1,11 +1,11 @@
-# Compatibility and known limits — v0.1.1
+# Compatibility and known limits — v0.1.2
 
 ## Distributions and builds
 
 | Target | Evidence |
 |---|---|
-| CachyOS / Arch x86_64 | Built with `makepkg` as `svmonitor-0.1.1-1-x86_64.pkg.tar.zst`; package contents and packaged binary checked. User-local installed binary exercised on CachyOS. System-wide `pacman -U` was not run (requires root). |
-| Debian 12 / 13 amd64 | `.deb` built inside Debian 12 (glibc 2.36); binary references up to GLIBC_2.34. Installation, repeated SIGHUP, graceful shutdown and removal tested in Debian 12/13 containers. Desktop sessions not tested there. |
+| CachyOS / Arch x86_64 | Final v0.1.2 built with `makepkg` as `svmonitor-0.1.2-1-x86_64.pkg.tar.zst`; 98 release unit tests passed. User-local installed v0.1.2 exercised on CachyOS. System-wide `pacman -U` was not run (requires root). |
+| Debian 12 / 13 amd64 | Final v0.1.2 `.deb` built inside Debian 12 (glibc 2.36); binary references up to GLIBC_2.34, 98 release unit tests passed. v0.1.2 installation, CLI startup and removal tested in Debian 12/13 containers; repeated SIGHUP/graceful shutdown were tested on v0.1.1. Desktop sessions not tested there. |
 | Ubuntu / other glibc distributions | Not tested. The `.deb` declares libc6 >= 2.36; do not assume installation works on releases with older glibc. Build from source for a different baseline. |
 | aarch64 / musl | Not verified. |
 
@@ -24,6 +24,10 @@ Runtime links to libc and libgcc_s. The binary needs no GTK/Qt/OpenSSL/libdbus; 
 The README screenshot is a real metrics submenu rendered from the running application's D-Bus menu
 by a GTK/libdbusmenu host on CachyOS. Only that widget is captured: no server names, desktop windows
 or personal paths are included. Popup styling differs between desktop hosts.
+
+v0.1.2 validation additionally used a disposable 32-server simulated fleet, real D-Bus actions, and actual GTK/libdbusmenu widgets in Adwaita light/dark on XWayland. GNOME's live accessibility tree confirmed the new native menu labels and hierarchy; automated pointer injection did not open its popup reliably, so v0.1.2 visual captures use the GTK host, not a claimed GNOME-shell popup capture.
+
+Known host quirk: GNOME AppIndicator may retain an extra underscore when one label contains multiple mnemonic escapes (notably page name ranges). The full server remains selectable; GTK/libdbusmenu displays the literal names. Configuration save errors are now surfaced on menu reopen, but inherited enable/remove mutations are not transactional with disk persistence.
 
 ## Default terminal
 

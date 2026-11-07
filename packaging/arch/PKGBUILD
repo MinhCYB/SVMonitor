@@ -1,7 +1,7 @@
 # Maintainer: SVMonitor contributors
 # Build from a local checkout:  cd packaging/arch && makepkg -si
 pkgname=svmonitor
-pkgver=0.1.1
+pkgver=0.1.2
 pkgrel=1
 pkgdesc='Lightweight SSH server monitor with system tray (no agents on servers)'
 arch=('x86_64' 'aarch64')

@@ -50,3 +50,16 @@ Versus v0.1.0: idle CPU unchanged (0.037%); RSS +~1 MiB (5.2 -> 6.4 MiB) and out
 the resolution of this method (10 ms ticks) and well inside the targets (RSS <= 20 MiB, CPU < 0.1%). The RSS difference was not
 bisected; plausible contributors are the larger launcher module and a notifier thread now started with signals blocked, but that is
 unverified.
+
+## v0.1.2 tray UX re-measurement
+
+Same machine and benchmark runner, installed final release binary 3,129,224 bytes, including review fixes. GNOME AppIndicator host attached; static rack pixmaps, grouped menu and bounded tooltips enabled. Both scenarios ran concurrently with desktop/build activity, not on a dedicated idle system.
+
+| Scenario | Duration | RSS avg / max / final | Threads max | FDs | Max SSH children | CPU daemon | CPU SSH children | CPU total |
+|---|---|---|---|---|---|---|---|---|
+| Tray, real catplus, 60 s interval | 240 s | 4.3 / 6.6 / 4.8 MiB | 9 | 10 | 1 | 0.017% | 0.029% | 0.046% |
+| Tray, two unreachable targets | 120 s | 5.5 / 6.8 / 4.8 MiB | 9 | 10 | 1 | 0.033% | 0.058% | 0.092% |
+
+Both measured scenarios remain within the RSS/CPU targets. RSS residency varies under memory pressure; lower RSS is not evidence of an allocation reduction. CPU totals increased by 0.009/0.017 percentage points versus v0.1.1 during concurrent build activity; these tick-based short runs do not establish causation or multi-day leak freedom.
+
+Additional native-menu smoke: 32 simulated servers (24 online, 2 refused, 2 authentication failures, 4 disabled), all reachable in the exported D-Bus hierarchy. A real D-Bus refresh click showed queued feedback and completed. GTK/libdbusmenu rendered the actual application's grouped navigation, disabled list and metrics/details in Adwaita light/dark on XWayland. The fake SSH fixture never contacted or interrupted a server. Installed binary v0.1.2 separately collected real catplus metrics and launched its SSH terminal.

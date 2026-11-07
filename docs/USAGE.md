@@ -51,8 +51,13 @@ executed. SSH is appended as separate arguments, preserving aliases, ssh-agent a
 
 
 ## Tray menu
-Per server submenu: status, SSH/Tailscale state, CPU/RAM/swap/disk/load/uptime, last events, **Open SSH terminal**, **Check now**,
-**Monitoring enabled**, **Remove**. Global: Check all, Add from SSH config, Mute notifications 1 h, autostart, open config/history, Quit.
+The native tray keeps urgent servers first. Up to eight monitored servers appear directly; larger fleets use bounded groups, with monitoring-off servers separate. Names containing underscores remain literal.
+
+Each server offers **Open SSH terminal** and **Check now**, separate SSH/Tailscale status, a compact CPU/RAM/disk view, and a **Details** submenu for full metrics/system information. Unavailable SSH marks retained metrics stale. Recent events and removal are nested instead of expanding the main menu.
+
+Global refresh shows queued/checking feedback and is unavailable while probes are active. Secondary controls (SSH-config import, notification mute, autostart, configuration and history) live under **Manage**. Launcher/autostart errors appear in the menu. Status badges use shape as well as color; essential information remains in text because tooltip/icon support varies by tray host.
+
+Refresh completion is tracked per server with a monotonic completed-check counter, including checks that finish within the same second. Configuration actions are queued without waiting under the tray lock; reopening the menu consumes engine replies and displays save errors. A failed save can leave a runtime enable/remove change active until configuration reload; check the error and writable config location before restarting.
 
 ## Files
 - Config `~/.config/svmonitor/config.toml` (see `config.example.toml`)

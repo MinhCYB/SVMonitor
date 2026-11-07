@@ -189,7 +189,7 @@ fn tray_and_notifications_over_dbus() {
     })
     .unwrap();
     svmonitor::config::save(&paths.config, &cfg).unwrap();
-    let (engine, handle) = Engine::new(
+    let (mut engine, handle) = Engine::new(
         cfg.clone(),
         Paths {
             config: paths.config.clone(),
@@ -198,13 +198,20 @@ fn tray_and_notifications_over_dbus() {
         },
         false,
     );
-    let eng_thread = std::thread::spawn(move || engine.run());
-
     use ksni::blocking::TrayMethods;
     let tray = SvTray::new(handle.clone(), &paths, cfg)
         .assume_sni_available(true)
         .spawn()
         .expect("tray spawn on bus with watcher");
+    let th = tray.clone();
+    let (published, initial) = std::sync::mpsc::channel();
+    engine.add_sink(Box::new(move |s| {
+        let s = s.clone();
+        th.update(move |t| t.snap = s);
+        let _ = published.send(());
+    }));
+    let eng_thread = std::thread::spawn(move || engine.run());
+    initial.recv_timeout(Duration::from_secs(5)).unwrap();
     let registered = wait_for(5, || items.lock().unwrap().first().cloned());
     assert!(
         registered.starts_with("org.kde.StatusNotifierItem-"),
@@ -226,6 +233,7 @@ fn tray_and_notifications_over_dbus() {
             tailscale: TsState::PeerOffline,
             metrics: None,
             last_check: Some(990),
+            completed_checks: 0,
             last_ok: None,
             down_since: Some(900),
             detail: "connection timed out".into(),
@@ -296,7 +304,15 @@ fn tray_and_notifications_over_dbus() {
         labels.iter().any(|l| l.contains("Open SSH terminal")),
         "{labels:?}"
     );
-    // Informational rows are disabled, actions enabled.
+    assert!(
+        labels.iter().any(|l| l.contains("Manage")),
+        "Manage submenu must exist: {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|l| l.contains('●') || l.contains('✖')),
+        "Labels must not contain unicode status ornaments: {labels:?}"
+    );
+    // Informational rows disabled, actions enabled.
     let status_row = flat
         .iter()
         .find(|(_, l, _)| l.starts_with("Status:"))
@@ -353,6 +369,8 @@ fn tray_and_notifications_over_dbus() {
     assert!(s[1].1.contains("back online"));
 
     // Quit item stops the engine.
+    flat.clear();
+    flatten(&layout(&client), &mut flat);
     let quit = flat.iter().find(|(_, l, _)| l == "Quit").unwrap().0;
     client
         .call_method(

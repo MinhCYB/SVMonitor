@@ -28,6 +28,7 @@ pub struct Tracker {
     pub tailscale: TsState,
     pub metrics: Option<Metrics>,
     pub last_check: Option<i64>,
+    completed_checks: u64,
     pub last_ok: Option<i64>,
     pub down_since: Option<i64>,
     pub detail: String,
@@ -53,6 +54,7 @@ impl Tracker {
             tailscale: TsState::NotApplicable,
             metrics: None,
             last_check: None,
+            completed_checks: 0,
             last_ok: None,
             down_since: None,
             detail: String::new(),
@@ -133,6 +135,7 @@ impl Tracker {
             tailscale: self.tailscale,
             metrics: self.metrics.clone(),
             last_check: self.last_check,
+            completed_checks: self.completed_checks,
             last_ok: self.last_ok,
             down_since: self.down_since,
             detail: self.detail.clone(),
@@ -176,6 +179,7 @@ impl Tracker {
             return vec![];
         }
         self.last_check = Some(ctx.now);
+        self.completed_checks += 1;
         self.tailscale = ctx.ts;
         match outcome {
             Outcome::Ok(sample) => self.on_success(*sample, ctx, th),
