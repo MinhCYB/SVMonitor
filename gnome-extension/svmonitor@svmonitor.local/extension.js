@@ -800,9 +800,9 @@ export default class SvmonitorExtension extends Extension {
                 Gio.FileMonitorFlags.WATCH_MOVES,
                 this._cancellable
             );
-            this._fileMonitor.connect('changed', (_mon, file, _other, _eventType) => {
+            this._fileMonitor.connect('changed', (_mon, file, other, _eventType) => {
                 const basename = file?.get_basename?.();
-                if (!basename || basename === 'state.json') {
+                if (!basename || basename === 'state.json' || other?.get_basename?.() === 'state.json') {
                     this.scheduleCacheReload();
                 }
             });

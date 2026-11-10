@@ -61,6 +61,7 @@ is last. Detail text opacity is raised without changing the theme foreground or 
 - Current monitor geometry: 1920×1080 and 2560×1440. Shell theme scale switched to 2 and restored to 1; this is a runtime smoke check, not exhaustive fractional-scaling or alternate-monitor visual verification.
 - GJS presentation regressions: 76 passed. Rust `native_ui` integration checks: 3 passed. Only GNOME 51 is declared supported by this extension.
 - Final polish: `test_widgets.js` checks real Shell actors at 0/1/5/10/50/90/99/100%, collapsed/expanded, offline/stale and sixteen servers: 124 checks passed in each dark/light theme. Disk width equals its Details resource width; CPU/RAM remain 180 px. Original theme restored.
+- Pre-merge review caught missed same-directory atomic cache renames. The monitor now matches both source and destination filenames. `test_cache.js` exercises three successive real Gio atomic replacements without reopening the popup; no daemon writes or server actions are involved.
 
 ### Widget regression runner
 
@@ -74,6 +75,10 @@ development session with the extension already active, run (replace the source p
 Expected: `{checks: 124, failures: []}`. The runner creates temporary fixture actors, invokes no server
 actions, restores indicator state and destroys the fixtures. Reloaded test modules need a fresh URI
 because Shell caches ES modules; no Shell restart or unsafe-mode switch is required.
+
+The same Shell runner can import `test_cache.js` and call `run(extension)` with the active extension
+object instead of its indicator. Expected: `passed: true`, with three strictly increasing reload
+counts. Its temporary directory and monitor are removed after the check.
 
 See [benchmarks](BENCHMARKS.md) for whole-Shell measurements; these cannot establish extension-private RSS or CPU.
 
