@@ -126,9 +126,15 @@ fn first_line(s: &str) -> String {
 }
 
 /// Interpret a finished ssh run. Separated from process handling so it is unit-testable.
-pub fn interpret(exit_code: Option<i32>, stdout: &str, stderr: &str, ts: i64) -> ProbeResult {
+pub fn interpret(
+    exit_code: Option<i32>,
+    stdout: &str,
+    stderr: &str,
+    ts: i64,
+    net_iface: Option<&str>,
+) -> ProbeResult {
     if exit_code == Some(0) {
-        return match metrics::parse(stdout, ts) {
+        return match metrics::parse_with(stdout, ts, net_iface) {
             Ok(r) => ProbeResult::Ok(Box::new(r)),
             Err(e) => ProbeResult::Fail {
                 kind: FailKind::Remote,
@@ -252,7 +258,13 @@ pub fn run(spec: &ProbeSpec, ts: i64) -> ProbeResult {
         };
     }
     let code = status.and_then(|s| s.code());
-    interpret(code, &stdout, &stderr, ts)
+    interpret(
+        code,
+        &stdout,
+        &stderr,
+        ts,
+        spec.server.net_interface.as_deref(),
+    )
 }
 
 fn kill_group(pgid: i32) {
@@ -351,7 +363,7 @@ mod tests {
 
     #[test]
     fn stderr_detail_is_sanitised() {
-        match interpret(Some(255), "", "\x1b[2Jboom\x07\n", 0) {
+        match interpret(Some(255), "", "\x1b[2Jboom\x07\n", 0, None) {
             ProbeResult::Fail { detail, .. } => {
                 assert!(!detail.chars().any(|c| c.is_control()), "{detail:?}")
             }
@@ -362,30 +374,33 @@ mod tests {
     #[test]
     fn interprets_exit_codes() {
         let ok = "svm=1\nload=1 1 1\nuptime=5\nmem_total=100\nmem_avail=50\nsvm_end=1\n";
-        assert!(matches!(interpret(Some(0), ok, "", 0), ProbeResult::Ok(_)));
         assert!(matches!(
-            interpret(Some(0), "garbage", "", 0),
+            interpret(Some(0), ok, "", 0, None),
+            ProbeResult::Ok(_)
+        ));
+        assert!(matches!(
+            interpret(Some(0), "garbage", "", 0, None),
             ProbeResult::Fail {
                 kind: FailKind::Remote,
                 ..
             }
         ));
         assert!(matches!(
-            interpret(Some(127), "", "sh: not found", 0),
+            interpret(Some(127), "", "sh: not found", 0, None),
             ProbeResult::Fail {
                 kind: FailKind::Remote,
                 ..
             }
         ));
         assert!(matches!(
-            interpret(Some(255), "", "Permission denied (publickey).", 0),
+            interpret(Some(255), "", "Permission denied (publickey).", 0, None),
             ProbeResult::Fail {
                 kind: FailKind::Auth,
                 ..
             }
         ));
         assert!(matches!(
-            interpret(None, "", "", 0),
+            interpret(None, "", "", 0, None),
             ProbeResult::Fail {
                 kind: FailKind::Other,
                 ..

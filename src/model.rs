@@ -156,6 +156,17 @@ impl DiskUsage {
     }
 }
 
+/// Network throughput of one interface. `sampled` = measured over a ~1 s window inside one probe
+/// (near real time); otherwise an average over the interval between two probes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NetRate {
+    pub iface: String,
+    pub rx_bps: u64,
+    pub tx_bps: u64,
+    pub window_secs: f32,
+    pub sampled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Metrics {
     pub ts: i64,
@@ -172,6 +183,9 @@ pub struct Metrics {
     pub os: Option<String>,
     pub kernel: Option<String>,
     pub hostname: Option<String>,
+    /// None until two counter readings exist (first poll after start, reset, or reconnect).
+    #[serde(default)]
+    pub net: Option<NetRate>,
 }
 
 pub fn pct(used: u64, total: u64) -> f32 {
@@ -231,6 +245,8 @@ pub struct Snapshot {
     pub local_net_ok: bool,
     pub muted: bool,
     pub servers: Vec<ServerView>,
+    #[serde(default)]
+    pub command_capable: bool,
 }
 
 impl Snapshot {

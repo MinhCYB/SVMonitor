@@ -2,9 +2,11 @@
 pub mod autostart;
 pub mod cli;
 pub mod config;
+pub mod dashboard;
 pub mod engine;
 pub mod health;
 pub mod history;
+pub mod ipc;
 pub mod launcher;
 pub mod localnet;
 pub mod metrics;

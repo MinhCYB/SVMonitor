@@ -79,6 +79,7 @@ impl SvTray {
                 local_net_ok: true,
                 muted: false,
                 servers: vec![],
+                command_capable: true,
             },
             cfg,
             discovered: vec![],
@@ -398,6 +399,20 @@ fn full_detail_lines(v: &ServerView, now: i64) -> Vec<String> {
             "Load: {:.2} {:.2} {:.2}{stale}",
             m.load[0], m.load[1], m.load[2]
         ));
+        match &m.net {
+            Some(n) => out.push(format!(
+                "Network {}: RX {} / TX {} ({}){stale}",
+                escape_label(&util::sanitize_text(&n.iface, 16)),
+                util::fmt_rate(n.rx_bps),
+                util::fmt_rate(n.tx_bps),
+                if n.sampled {
+                    "live".to_string()
+                } else {
+                    format!("avg {}", fmt_duration(n.window_secs.round() as u64))
+                }
+            )),
+            None => out.push(format!("Network: collecting{stale}")),
+        }
         out.push(format!("Uptime: {}{stale}", fmt_duration(m.uptime_secs)));
         if let Some(procs) = m.procs {
             out.push(format!("Processes: {procs}{stale}"));
@@ -859,10 +874,25 @@ impl SvTray {
             self.feedback = None;
         }
     }
+
+    pub fn open_dashboard(&mut self, explicit: bool) {
+        if let Err(e) = launcher::open_dashboard(&self.paths.config) {
+            if explicit {
+                let msg = format!(
+                    "Dashboard launch failed: {}",
+                    escape_label(&util::sanitize_text(&format!("{e:#}"), 100))
+                );
+                eprintln!("svmonitor: dashboard launch: {e:#}");
+                self.feedback = Some(msg);
+            }
+        } else if explicit {
+            self.feedback = None;
+        }
+    }
 }
 
 impl ksni::Tray for SvTray {
-    const MENU_ON_ACTIVATE: bool = true;
+    const MENU_ON_ACTIVATE: bool = false;
 
     fn id(&self) -> String {
         "svmonitor".into()
@@ -892,6 +922,12 @@ impl ksni::Tray for SvTray {
             icon_name: String::new(),
             icon_pixmap: vec![],
         }
+    }
+    fn activate(&mut self, _x: i32, _y: i32) {
+        self.open_dashboard(false);
+    }
+    fn secondary_activate(&mut self, _x: i32, _y: i32) {
+        self.open_dashboard(false);
     }
     fn menu_about_to_show(&mut self) {
         self.refresh_menu_data();
@@ -924,6 +960,13 @@ impl ksni::Tray for SvTray {
         }
 
         m.push(MenuItem::Separator);
+        m.push(action(
+            "Open dashboard",
+            "utilities-system-monitor",
+            |t: &mut SvTray| {
+                t.open_dashboard(true);
+            },
+        ));
 
         // Check all action near top
         let any_enabled = self.snap.servers.iter().any(|s| s.enabled);
@@ -1288,6 +1331,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers,
+            command_capable: true,
         };
 
         let (_dir, tray) = test_tray(snap.clone());
@@ -1352,6 +1396,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers,
+            command_capable: true,
         };
         let refs: Vec<_> = snap.servers.iter().collect();
         let ordered = sort_urgency(&refs);
@@ -1399,6 +1444,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers: vec![s],
+            command_capable: true,
         };
         let tt = tooltip_text(&snap);
         assert!(
@@ -1424,6 +1470,7 @@ mod tests {
             os: None,
             kernel: None,
             hostname: None,
+            net: None,
         };
 
         let mut s = view(Overall::Attention);
@@ -1470,6 +1517,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers: vec![s],
+            command_capable: true,
         };
         let (_dir, tray) = test_tray(snap);
         let menu = tray.menu();
@@ -1513,6 +1561,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers,
+            command_capable: true,
         };
         let tt = tooltip_text(&snap);
 
@@ -1546,6 +1595,7 @@ mod tests {
             local_net_ok: false,
             muted: false,
             servers: vec![view(Overall::Down), view(Overall::Online)],
+            command_capable: true,
         };
         let (_dir, tray) = test_tray(snap);
         let menu = tray.menu();
@@ -1580,6 +1630,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers: vec![first, second],
+            command_capable: true,
         });
         let action = tray
             .menu()
@@ -1612,6 +1663,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers: vec![view(Overall::Online)],
+            command_capable: true,
         });
         let (tx, rx) = std::sync::mpsc::channel();
         tray.pending_actions.push(rx);
@@ -1640,6 +1692,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers,
+            command_capable: true,
         });
         let refs: Vec<_> = tray.snap.servers.iter().collect();
         let pages = tray.build_paged_servers(&refs, 100, "Page");
@@ -1676,6 +1729,7 @@ mod tests {
             local_net_ok: true,
             muted: false,
             servers: vec![s],
+            command_capable: true,
         };
         // Notice _eng is NOT running a loop; synchronous Handle::set_enabled / remove would block 5s and fail,
         // whereas queueing Cmd with reply None returns immediately!
@@ -1764,5 +1818,68 @@ mod tests {
             "Menu must surface launcher error feedback: {labels4:?}"
         );
         drop(dir);
+    }
+
+    #[test]
+    fn test_open_dashboard_absent_binary_shows_honest_feedback_and_preserves_menu() {
+        let (_, mut tray) = test_tray(Snapshot {
+            ts: 100,
+            pid: 1,
+            local_net_ok: true,
+            muted: false,
+            servers: vec![view(Overall::Online)],
+            command_capable: true,
+        });
+        if !launcher::is_popup_available() {
+            tray.open_dashboard(true);
+            assert!(
+                tray.feedback.is_some(),
+                "Feedback should be set when popup binary is absent"
+            );
+            let fb = tray.feedback.as_ref().unwrap();
+            assert!(
+                fb.contains("svmonitor-popup not found"),
+                "Feedback should mention svmonitor-popup not found: {fb}"
+            );
+
+            let menu = tray.menu();
+            let labels = collect_labels(&menu);
+            assert!(
+                labels
+                    .iter()
+                    .any(|l| l.contains("svmonitor-popup not found"))
+            );
+            assert!(labels.iter().any(|l| l == "Open dashboard"));
+            assert!(labels.iter().any(|l| l == "Check all now"));
+            assert!(labels.iter().any(|l| l == "Settings & Manage"));
+            assert!(labels.iter().any(|l| l == "Quit"));
+        }
+    }
+
+    #[test]
+    fn test_activate_and_secondary_activate_silent_fallback_when_absent() {
+        let (_, mut tray) = test_tray(Snapshot {
+            ts: 100,
+            pid: 1,
+            local_net_ok: true,
+            muted: false,
+            servers: vec![view(Overall::Online)],
+            command_capable: true,
+        });
+        use ksni::Tray;
+
+        if !launcher::is_popup_available() {
+            tray.activate(0, 0);
+            assert!(
+                tray.feedback.is_none(),
+                "activate must not set error feedback when binary absent"
+            );
+
+            tray.secondary_activate(0, 0);
+            assert!(
+                tray.feedback.is_none(),
+                "secondary_activate must not set error feedback when binary absent"
+            );
+        }
     }
 }

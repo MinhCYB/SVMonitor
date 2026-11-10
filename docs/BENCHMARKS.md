@@ -63,3 +63,30 @@ Same machine and benchmark runner, installed final release binary 3,129,224 byte
 Both measured scenarios remain within the RSS/CPU targets. RSS residency varies under memory pressure; lower RSS is not evidence of an allocation reduction. CPU totals increased by 0.009/0.017 percentage points versus v0.1.1 during concurrent build activity; these tick-based short runs do not establish causation or multi-day leak freedom.
 
 Additional native-menu smoke: 32 simulated servers (24 online, 2 refused, 2 authentication failures, 4 disabled), all reachable in the exported D-Bus hierarchy. A real D-Bus refresh click showed queued feedback and completed. GTK/libdbusmenu rendered the actual application's grouped navigation, disabled list and metrics/details in Adwaita light/dark on XWayland. The fake SSH fixture never contacted or interrupted a server. Installed binary v0.1.2 separately collected real catplus metrics and launched its SSH terminal.
+
+## v0.1.3 optional dashboard
+
+Release comparison on this CachyOS/GNOME Wayland machine. Private runtime/config directories,
+fake SSH only; no server disruption. Each window: 30 seconds after a 3-second warm-up,
+`/proc/<pid>/stat` CPU ticks, RSS sampled once per second. CPU percentages are one-core usage;
+0.000% means no tick observed, not zero CPU. Concurrent desktop/build activity; short-run estimates.
+
+| Version / scenario | Process | RSS average / maximum MiB | CPU self | CPU reaped children |
+|---|---|---|---|---|
+| v0.1.2, no servers, headless | daemon | 4.14 / 4.25 | 0.000% | 0.000% |
+| v0.1.3, no servers, headless | daemon | 4.15 / 4.18 | 0.000% | 0.000% |
+| v0.1.2, 20 simulated failures | daemon | 4.80 / 4.86 | 0.167% | 0.567% |
+| v0.1.3, 20 simulated failures | daemon | 4.91 / 4.98 | 0.233% | 0.567% |
+| v0.1.3, 20 healthy simulated servers, popup open | daemon | 4.49 / 4.72 | 0.000% | 0.000% |
+| Same run, cairo GTK4 dashboard | popup | 50.09 / 57.41 | 0.167% | 0.000% |
+
+The daemon remains below 20 MiB in these runs. The optional open GTK window is **not** within
+the daemon's 20 MiB target. The 20-server failure scenario exceeds the 0.1% CPU goal; it is not
+an idle measurement. Closing the last dashboard window exits its process. `ldd svmonitor`
+shows libc/libgcc only, no GTK; GTK is linked only by `svmonitor-popup`.
+
+Actual GNOME Wayland GTK surfaces were captured in light/dark themes, a 2x scale environment,
+20-server scrolling and stale/offline state. Captures used temporary GTK snapshot instrumentation,
+removed afterward; not panel-anchoring proof. Actual SNI Activate/SecondaryActivate opened one
+dashboard; GTK buttons exercised mute, pause/resume and check-all against an isolated real daemon.
+Read-only `catplus` check returned live CPU/RAM/disk and RX/TX. No multi-day leak claim.

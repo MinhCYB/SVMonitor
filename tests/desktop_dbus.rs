@@ -223,6 +223,7 @@ fn tray_and_notifications_over_dbus() {
         ts: 1000,
         pid: 1,
         local_net_ok: true,
+        command_capable: true,
         muted: false,
         servers: vec![ServerView {
             name: "demo".into(),

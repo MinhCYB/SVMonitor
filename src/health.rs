@@ -5,6 +5,10 @@ use crate::metrics::{self, RawSample};
 use crate::model::*;
 use std::collections::BTreeMap;
 
+/// A network average is only meaningful over one normal polling interval. Past this gap (an outage
+/// followed by reconnect) the counters still advance but averaging would show a misleadingly low speed.
+const NET_MAX_GAP_SECS: f64 = 600.0;
+
 #[derive(Debug)]
 pub enum Outcome {
     Ok(Box<RawSample>),
@@ -34,6 +38,7 @@ pub struct Tracker {
     pub detail: String,
     pub fails: u32,
     prev_cpu: Option<[u64; 8]>,
+    prev_net: Option<(crate::metrics::NetCounters, f64)>,
     last_uptime: Option<u64>,
     breach_count: BTreeMap<&'static str, u32>,
     breach_active: BTreeMap<&'static str, f32>,
@@ -60,6 +65,7 @@ impl Tracker {
             detail: String::new(),
             fails: 0,
             prev_cpu: None,
+            prev_net: None,
             last_uptime: None,
             breach_count: BTreeMap::new(),
             breach_active: BTreeMap::new(),
@@ -85,6 +91,7 @@ impl Tracker {
             self.breach_count.clear();
             self.breach_active.clear();
             self.prev_cpu = None;
+            self.prev_net = None;
             self.metrics = None;
             self.ssh = SshState::Unknown;
             self.detail.clear();
@@ -214,6 +221,7 @@ impl Tracker {
     ) -> Vec<Event> {
         let mut events = Vec::new();
         self.ssh = SshState::Unavailable(kind);
+        self.prev_net = None;
         // Local problems must never be blamed on the server.
         let local = ctx.ts.is_local_problem()
             || (!ctx.local_net_ok && (kind.is_connectivity() || kind == FailKind::Dns));
@@ -310,6 +318,16 @@ impl Tracker {
             m.cpu_pct = metrics::cpu_pct(&prev, &cur);
         }
         self.prev_cpu = sample.cpu;
+        // Prefer the in-probe sample; otherwise average consecutive successful probes on the
+        // remote clock. Failed polls discard the baseline; gaps over ten minutes yield N/A.
+        if m.net.is_none()
+            && let (Some(prev), Some(cur), Some(at)) =
+                (self.prev_net.as_ref(), sample.net.as_ref(), sample.net_at)
+            && at - prev.1 <= NET_MAX_GAP_SECS
+        {
+            m.net = metrics::net_rate(&prev.0, cur, at - prev.1, false);
+        }
+        self.prev_net = sample.net.zip(sample.net_at);
 
         match prev_overall {
             Overall::Down => {
@@ -456,6 +474,8 @@ mod tests {
     }
     fn sample(cpu: [u64; 8], mem_used_pct: u64, uptime: u64) -> RawSample {
         RawSample {
+            net: None,
+            net_at: None,
             ts: 0,
             cpu: Some(cpu),
             metrics: Metrics {
@@ -477,6 +497,7 @@ mod tests {
                 os: None,
                 kernel: None,
                 hostname: None,
+                net: None,
             },
         }
     }
@@ -765,6 +786,125 @@ mod tests {
             t.overall,
             Overall::Down,
             "a declared outage is not forgiven"
+        );
+    }
+
+    fn net_ok(rx: u64, tx: u64, at: f64, iface: &str) -> Outcome {
+        let mut s = sample([100, 0, 0, 900, 0, 0, 0, 0], 10, at as u64);
+        s.net = Some(crate::metrics::NetCounters {
+            iface: iface.into(),
+            rx,
+            tx,
+        });
+        s.net_at = Some(at);
+        Outcome::Ok(Box::new(s))
+    }
+    fn rate(t: &Tracker) -> Option<crate::model::NetRate> {
+        t.metrics.as_ref().and_then(|m| m.net.clone())
+    }
+
+    #[test]
+    fn network_rate_averages_between_two_polls_on_remote_clock() {
+        let (th, g) = (Thresholds::default(), g());
+        let mut t = tr();
+        t.apply(net_ok(1_000, 1_000, 100.0, "eth0"), &ctx(1), &th, &g);
+        assert!(
+            rate(&t).is_none(),
+            "first poll has no baseline: N/A, never invented"
+        );
+        t.apply(
+            net_ok(1_000 + 600_000, 1_000 + 60_000, 160.0, "eth0"),
+            &ctx(61),
+            &th,
+            &g,
+        );
+        let r = rate(&t).expect("average over the 60 s interval");
+        assert_eq!((r.rx_bps, r.tx_bps), (10_000, 1_000));
+        assert!(!r.sampled);
+        assert!((r.window_secs - 60.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn network_rate_resets_after_counter_reset_and_reconnect_gap() {
+        let (th, g) = (Thresholds::default(), g());
+        let mut t = tr();
+        t.apply(net_ok(10_000, 10_000, 100.0, "eth0"), &ctx(1), &th, &g);
+        t.apply(net_ok(50, 50, 160.0, "eth0"), &ctx(61), &th, &g);
+        assert!(
+            rate(&t).is_none(),
+            "counters went backwards: server rebooted"
+        );
+        t.apply(net_ok(5_000, 5_000, 220.0, "eth0"), &ctx(121), &th, &g);
+        assert!(rate(&t).is_some(), "recovers on the next clean pair");
+        t.apply(fail(FailKind::Timeout), &ctx(130), &th, &g);
+        t.apply(
+            net_ok(9_999_999, 9_999_999, 9_000.0, "eth0"),
+            &ctx(9_000),
+            &th,
+            &g,
+        );
+        assert!(
+            rate(&t).is_none(),
+            "an outage-long gap must not be averaged into a fake low speed"
+        );
+    }
+
+    #[test]
+    fn network_rate_discards_baseline_after_failed_poll() {
+        let (th, g) = (Thresholds::default(), g());
+        let mut t = tr();
+        t.apply(net_ok(100, 100, 100.0, "eth0"), &ctx(1), &th, &g);
+        t.apply(fail(FailKind::Timeout), &ctx(2), &th, &g);
+        t.apply(net_ok(1000, 1000, 110.0, "eth0"), &ctx(11), &th, &g);
+        assert!(rate(&t).is_none(), "reconnect must start a new baseline");
+    }
+
+    #[test]
+    fn network_rate_never_mixes_two_interfaces() {
+        let (th, g) = (Thresholds::default(), g());
+        let mut t = tr();
+        t.apply(net_ok(1_000, 1_000, 100.0, "eth0"), &ctx(1), &th, &g);
+        t.apply(
+            net_ok(9_000_000, 9_000_000, 160.0, "ens3"),
+            &ctx(61),
+            &th,
+            &g,
+        );
+        assert!(rate(&t).is_none());
+    }
+
+    #[test]
+    fn in_probe_window_rate_wins_and_disabling_drops_baseline() {
+        let (th, g) = (Thresholds::default(), g());
+        let mut t = tr();
+        let mut s = sample([100, 0, 0, 900, 0, 0, 0, 0], 10, 100);
+        s.net = Some(crate::metrics::NetCounters {
+            iface: "eth0".into(),
+            rx: 5,
+            tx: 5,
+        });
+        s.net_at = Some(100.0);
+        s.metrics.net = Some(crate::model::NetRate {
+            iface: "eth0".into(),
+            rx_bps: 4_000,
+            tx_bps: 2_000,
+            window_secs: 1.0,
+            sampled: true,
+        });
+        t.apply(Outcome::Ok(Box::new(s)), &ctx(1), &th, &g);
+        assert_eq!(
+            rate(&t).unwrap().rx_bps,
+            4_000,
+            "a 1 s sample is kept as realtime"
+        );
+        assert!(rate(&t).unwrap().sampled);
+        t.set_enabled(false, 5);
+        assert!(t.metrics.is_none());
+        t.set_enabled(true, 6);
+        t.apply(net_ok(1, 1, 500.0, "eth0"), &ctx(7), &th, &g);
+        assert!(
+            rate(&t).is_none(),
+            "a stale baseline from before the pause is not reused"
         );
     }
 }

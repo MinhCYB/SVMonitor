@@ -26,14 +26,24 @@ load_per_core = 4.0
 samples = 3
 
 [[server]]
-name = "my-server"            # an alias from ~/.ssh/config
+name = "my-server" # Alias in ~/.ssh/config
+# net_interface = "eth0"         # Specific interface to monitor (1-15 chars, [A-Za-z0-9._:@-]).
+                                 # If omitted, auto-selects the default route interface from
+                                 # /proc/net/route, or the busiest physical-looking interface.
+                                 # Virtual interfaces (lo, docker*, veth*, br-*, virbr*, tailscale*,
+                                 # tun*, wg*) are ignored by default. Tailscale traffic is never summed
+                                 # into default traffic; set to "tailscale0" to monitor it explicitly.
+                                 # Sampling: first poll samples across 1s; subsequent polls compute
+                                 # average rate from counter deltas / remote uptime. Counter resets or
+                                 # SSH downtime mark rates as N/A and retained metrics as stale.
 
-# Manual server (no alias): connect to host directly.
+# Manual server (no alias): specify host directly.
 # [[server]]
 # name = "scratch-box"
 # host = "203.0.113.10"
 # user = "deploy"
 # port = 2222
-# identity_file = "~/.ssh/id_ed25519"   # a path only
+# identity_file = "~/.ssh/id_ed25519" # path only
 # interval_secs = 120
 # enabled = true
+# net_interface = "ens3"

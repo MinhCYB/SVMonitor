@@ -97,6 +97,10 @@ pub struct Server {
     /// Per-server override of general.interval_secs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interval_secs: Option<u64>,
+    /// Interface whose RX/TX is shown. Default: the default-route interface (virtual bridges,
+    /// veth, docker and tunnels such as tailscale0 are never auto-selected). Any exact name works.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub net_interface: Option<String>,
 }
 
 fn yes() -> bool {
@@ -113,6 +117,7 @@ impl Server {
             port: None,
             identity_file: None,
             interval_secs: None,
+            net_interface: None,
         }
     }
     pub fn is_manual(&self) -> bool {
@@ -163,6 +168,17 @@ impl Server {
             && (i.starts_with('-') || i.chars().any(|c| c.is_control()))
         {
             bail!("invalid identity_file");
+        }
+        if let Some(n) = &self.net_interface
+            && (n.is_empty()
+                || n.len() > 15
+                || !n
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-:@".contains(c)))
+        {
+            bail!(
+                "invalid net_interface {n:?}: Linux interface names are 1-15 characters of [A-Za-z0-9._:@-]"
+            );
         }
         Ok(())
     }
@@ -254,6 +270,7 @@ impl Config {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Paths {
     pub config: PathBuf,
     pub state_dir: PathBuf,

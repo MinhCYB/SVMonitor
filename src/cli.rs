@@ -5,8 +5,8 @@ use crate::health::{Context, Outcome, Tracker};
 use crate::model::*;
 use crate::probe::{self, ProbeResult, ProbeSpec};
 use crate::tray::{self, SvTray};
-use crate::util::{fmt_ago, fmt_duration, fmt_kib, now_unix};
-use crate::{autostart, history, launcher, localnet, sshconfig, tailscale};
+use crate::util::{fmt_ago, fmt_duration, fmt_kib, fmt_rate, now_unix};
+use crate::{autostart, history, ipc, launcher, localnet, sshconfig, tailscale};
 use anyhow::{Context as _, Result, bail};
 use clap::{Parser, Subcommand};
 use std::fs::OpenOptions;
@@ -475,6 +475,7 @@ fn status(paths: &Paths, json: bool, watch: bool) -> Result<i32> {
                     local_net_ok: localnet::has_default_route(),
                     muted: false,
                     servers: one_shot_all(&cfg, &[]),
+                    command_capable: false,
                 }
             }
         };
@@ -502,8 +503,8 @@ pub fn print_table(s: &Snapshot) {
         println!("! this machine has no network route\n");
     }
     println!(
-        "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  DETAIL",
-        "SERVER", "STATE", "TAILSCALE", "CPU", "RAM", "DISK", "UPTIME"
+        "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>10} {:>10} {:>13} DETAIL",
+        "SERVER", "STATE", "TAILSCALE", "CPU", "RAM", "DISK", "RX", "TX", "UPTIME"
     );
     for v in &s.servers {
         let (cpu, ram, disk, up) = match (&v.metrics, v.ssh) {
@@ -519,6 +520,12 @@ pub fn print_table(s: &Snapshot) {
             ),
             _ => ("-".into(), "-".into(), "-".into(), "-".into()),
         };
+        let (rx, tx) = match (&v.metrics, v.ssh) {
+            (Some(Metrics { net: Some(n), .. }), SshState::Available) => {
+                (fmt_rate(n.rx_bps), fmt_rate(n.tx_bps))
+            }
+            _ => ("-".into(), "-".into()),
+        };
         let mut state = v.overall.label().to_string();
         if v.pending_failures > 0 {
             state += &format!(" ({}/{})", v.pending_failures, v.failure_threshold);
@@ -533,13 +540,15 @@ pub fn print_table(s: &Snapshot) {
             detail = format!("checked {}", fmt_ago(t, s.ts));
         }
         println!(
-            "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}",
+            "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>10} {:>10} {:>13} {}",
             trunc(&v.name, 18),
             trunc(&state, 16),
             trunc(v.tailscale.label(), 14),
             cpu,
             ram,
             disk,
+            rx,
+            tx,
             up,
             detail
         );
@@ -656,6 +665,7 @@ fn check(paths: &Paths, names: &[String], json: bool) -> Result<i32> {
         local_net_ok: localnet::has_default_route(),
         muted: false,
         servers: views,
+        command_capable: false,
     };
     if json {
         println!("{}", serde_json::to_string_pretty(&snap)?);
@@ -695,7 +705,7 @@ impl SignalMaskGuard {
         unsafe {
             let mut set: libc::sigset_t = std::mem::zeroed();
             libc::sigemptyset(&mut set);
-            for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGUSR1] {
                 libc::sigaddset(&mut set, s);
             }
             let mut old_set: libc::sigset_t = std::mem::zeroed();
@@ -716,7 +726,7 @@ impl Drop for SignalMaskGuard {
     }
 }
 
-fn install_signals(handle: Handle, set: libc::sigset_t) -> Result<()> {
+fn install_signals(handle: Handle, set: libc::sigset_t, paths: Paths) -> Result<()> {
     // Signals were blocked before any threads were spawned; consume in a dedicated one.
     std::thread::Builder::new()
         .name("svm-signal".into())
@@ -730,6 +740,18 @@ fn install_signals(handle: Handle, set: libc::sigset_t) -> Result<()> {
                 }
                 match sig {
                     libc::SIGHUP => handle.send(Cmd::Reload),
+                    // A UI helper queued commands in the spool and woke us; drain and forward.
+                    libc::SIGUSR1 => {
+                        for _ in 0..16 {
+                            let cmds = ipc::drain(&paths);
+                            if cmds.is_empty() {
+                                break;
+                            }
+                            for c in cmds {
+                                handle.send(c.into_cmd());
+                            }
+                        }
+                    }
                     _ => {
                         handle.shutdown();
                         return;
@@ -744,6 +766,7 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
     // Block signals BEFORE spawning any threads (Engine, Notifier, Tray, etc.)
     let (_sig_guard, sig_set) = SignalMaskGuard::block()?;
     let _lock = acquire_lock(&paths)?;
+    ipc::purge(&paths);
     let cfg = config::load(&paths.config)?;
     let (mut engine, handle) = Engine::new(
         cfg.clone(),
@@ -754,7 +777,7 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
         },
         !no_notify,
     );
-    install_signals(handle.clone(), sig_set)?;
+    install_signals(handle.clone(), sig_set, paths.clone())?;
     let mut tray_handle = None;
     if !headless {
         use ksni::blocking::TrayMethods;
