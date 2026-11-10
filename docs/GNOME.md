@@ -38,6 +38,16 @@ The extension destroys its panel button, cancels its own I/O/timers, and restore
 
 One click opens a native panel popup. Outside click or Escape closes it. Header/footer stay fixed; only the server list scrolls. CPU/RAM are equal-width columns. Current throughput is not displayed for stale/offline data. Expanded rows expose SSH, Check, Pause/Resume and management actions. Settings opens the existing config; it does not launch a second monitoring engine.
 
+Collapsed cards contain server/status, CPU, RAM, network and check age; Disk is never rendered there.
+Expanded details add SSH/Tailscale, system, uptime and the most-used filesystem's Disk label,
+used/total GiB, percentage and progress bar before the actions. Offline cards retain these last-known
+values with a stale marker instead of presenting current throughput.
+
+CPU, RAM and Disk share the same 5 px height, 3 px corner radius and horizontal LTR layout.
+Fill width follows the allocated track width; 0% hides the fill and 100% fills the track.
+`St.Bin` centered its child even with `x_align: START`; horizontal `St.BoxLayout` fixes the allocation
+rather than offsetting the fill with CSS. No animation or per-bar timer is used.
+
 ## Verified on the current desktop
 
 - GNOME 51.1 Wayland, live `catplus` and `ms24server` cache: native panel popup, two cards, CPU/RAM columns, RX/TX and details. Direct Shell screenshot avoids portal screenshot UI closing the popup.
@@ -46,5 +56,19 @@ One click opens a native panel popup. Outside click or Escape closes it. Header/
 - Disable restores the original SVMonitor AppIndicator; re-enable succeeds. Exact SNI id matching excludes `svmonitor-helper` even with the same title. No unrelated indicator is hidden.
 - Current monitor geometry: 1920×1080 and 2560×1440. Shell theme scale switched to 2 and restored to 1; this is a runtime smoke check, not exhaustive fractional-scaling or alternate-monitor visual verification.
 - GJS presentation regressions: 76 passed. Rust `native_ui` integration checks: 3 passed. Only GNOME 51 is declared supported by this extension.
+- Progress/Disk fix: `test_widgets.js` exercised real Shell actors at 0/1/5/10/50/90/99/100%, collapsed/expanded, offline/stale and sixteen servers: 108 checks passed in each dark/light theme. Live screenshots confirmed the two-server popup in both themes; original theme restored.
+
+### Widget regression runner
+
+These checks require the actual Shell/St runtime, not standalone `gjs`. From Looking Glass in a
+development session with the extension already active, run (replace the source path):
+
+```js
+(async () => { const tests = await import('file:///absolute/path/SVMonitor/gnome-extension/svmonitor@svmonitor.local/test_widgets.js'); return await tests.run(Main.extensionManager.lookup('svmonitor@svmonitor.local').stateObj._indicator); })()
+```
+
+Expected: `{checks: 108, failures: []}`. The runner creates temporary fixture actors, invokes no server
+actions, restores indicator state and destroys the fixtures. Reloaded test modules need a fresh URI
+because Shell caches ES modules; no Shell restart or unsafe-mode switch is required.
 
 See [benchmarks](BENCHMARKS.md) for whole-Shell measurements; these cannot establish extension-private RSS or CPU.

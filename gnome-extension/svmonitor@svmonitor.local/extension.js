@@ -269,6 +269,31 @@ class SvmonitorIndicator extends PanelMenu.Button {
         }
     }
 
+    _createProgress(pct) {
+        const fraction = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
+        // St.Bin centers its child; a horizontal box allocates from the LTR edge.
+        const track = new St.BoxLayout({
+            style_class: 'svmonitor-progress-bg',
+            x_align: Clutter.ActorAlign.START,
+            x_expand: true,
+        });
+        track.set_text_direction(Clutter.TextDirection.LTR);
+        track.set_style('width: 180px; min-width: 180px;');
+        const severity = pct >= 90 ? 'svmonitor-progress-fill-critical'
+            : (pct >= 75 ? 'svmonitor-progress-fill-warning' : '');
+        const fill = new St.Widget({
+            style_class: `svmonitor-progress-fill ${severity}`,
+            x_expand: false,
+            x_align: Clutter.ActorAlign.START,
+            visible: fraction > 0,
+        });
+        track.add_child(fill);
+        track.connect('notify::allocation', () => {
+            fill.set_width(track.width * fraction);
+        });
+        return track;
+    }
+
     _createCard(server, canCmd) {
         const isExpanded = this._expandedServer === server.name;
         const badge = getOverallBadge(server.overall, server.enabled);
@@ -337,23 +362,7 @@ class SvmonitorIndicator extends PanelMenu.Button {
         cpuHeader.add_child(new St.Widget({ x_expand: true }));
         cpuHeader.add_child(new St.Label({ text: cpuInfo.text, style_class: 'svmonitor-col-value' }));
 
-        const BAR_WIDTH = 180;
-        const cpuProgressBg = new St.Bin({
-            style_class: 'svmonitor-progress-bg',
-            x_align: Clutter.ActorAlign.START,
-            x_expand: true,
-        });
-        cpuProgressBg.set_style(`width: ${BAR_WIDTH}px; min-width: ${BAR_WIDTH}px;`);
-        const cpuFillClass = cpuInfo.pct >= 90
-            ? 'svmonitor-progress-fill-critical'
-            : (cpuInfo.pct >= 75 ? 'svmonitor-progress-fill-warning' : '');
-        const cpuFill = new St.Widget({
-            x_align: Clutter.ActorAlign.START,
-            style_class: `svmonitor-progress-fill ${cpuFillClass}`,
-        });
-        const cpuFillPx = Math.max(2, Math.round(BAR_WIDTH * (cpuInfo.pct / 100)));
-        cpuFill.set_style(`width: ${cpuFillPx}px; min-width: ${cpuFillPx}px;`);
-        cpuProgressBg.set_child(cpuFill);
+        const cpuProgressBg = this._createProgress(cpuInfo.pct);
 
         cpuCol.add_child(cpuHeader);
         cpuCol.add_child(cpuProgressBg);
@@ -369,22 +378,7 @@ class SvmonitorIndicator extends PanelMenu.Button {
         memHeader.add_child(new St.Label({ text: 'RAM', style_class: 'svmonitor-col-header' }));
         memHeader.add_child(new St.Widget({ x_expand: true }));
         memHeader.add_child(new St.Label({ text: memInfo.text, style_class: 'svmonitor-col-value' }));
-        const memProgressBg = new St.Bin({
-            style_class: 'svmonitor-progress-bg',
-            x_align: Clutter.ActorAlign.START,
-            x_expand: true,
-        });
-        memProgressBg.set_style(`width: ${BAR_WIDTH}px; min-width: ${BAR_WIDTH}px;`);
-        const memFillClass = memInfo.pct >= 90
-            ? 'svmonitor-progress-fill-critical'
-            : (memInfo.pct >= 75 ? 'svmonitor-progress-fill-warning' : '');
-        const memFill = new St.Widget({
-            x_align: Clutter.ActorAlign.START,
-            style_class: `svmonitor-progress-fill ${memFillClass}`,
-        });
-        const memFillPx = Math.max(2, Math.round(BAR_WIDTH * (memInfo.pct / 100)));
-        memFill.set_style(`width: ${memFillPx}px; min-width: ${memFillPx}px;`);
-        memProgressBg.set_child(memFill);
+        const memProgressBg = this._createProgress(memInfo.pct);
 
         memCol.add_child(memHeader);
         memCol.add_child(memProgressBg);
@@ -475,10 +469,22 @@ class SvmonitorIndicator extends PanelMenu.Button {
 
             const worstDisk = getWorstDisk(m.disks);
             if (worstDisk) {
-                const diskLine = new St.BoxLayout({ style_class: 'svmonitor-detail-line' });
-                diskLine.add_child(new St.Label({ text: 'Disk:', style_class: 'svmonitor-detail-label' }));
-                diskLine.add_child(new St.Label({ text: `${worstDisk.mount} (${worstDisk.pct}%)` }));
-                detailBox.add_child(diskLine);
+                const diskBox = new St.BoxLayout({
+                    orientation: Clutter.Orientation.VERTICAL,
+                    style_class: 'svmonitor-col',
+                    x_expand: true,
+                });
+                const diskHeader = new St.BoxLayout({ x_expand: true });
+                diskHeader.add_child(new St.Label({ text: `Disk ${worstDisk.mount}`, style_class: 'svmonitor-col-header' }));
+                diskHeader.add_child(new St.Widget({ x_expand: true }));
+                diskHeader.add_child(new St.Label({ text: `${worstDisk.pct}%`, style_class: 'svmonitor-col-value' }));
+                diskBox.add_child(diskHeader);
+                diskBox.add_child(new St.Label({
+                    text: `${(worstDisk.used_kib / 1048576).toFixed(1)} GiB / ${(worstDisk.total_kib / 1048576).toFixed(1)} GiB`,
+                    style_class: 'svmonitor-col-sub',
+                }));
+                diskBox.add_child(this._createProgress(worstDisk.pct));
+                detailBox.add_child(diskBox);
             }
         }
 

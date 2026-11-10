@@ -111,3 +111,20 @@ portal or input helper closed the popup were discarded. No multi-day runtime cla
 Live verification: two-server popup and SSH launch, Check/Refresh All, Pause/Resume, default config
 editor, stale/offline fixtures, exact tray takeover/restore. Sixteen-server fixture measured a 520 px
 scroll viewport within a 614 px menu with fixed 52 px footer. See [GNOME instructions](GNOME.md).
+
+### Disk/progress UI fix recheck
+
+Same active GNOME session, two real servers, 10-second windows with popup state verified at both
+ends. Measurements include unrelated desktop/extension activity; no isolated per-extension CPU claim.
+
+| Surface/state | Duration | RSS at end | CPU self | CPU reaped children |
+|---|---|---|---|---|
+| Whole Shell, expanded popup open | 10.000 s | 359.63 MiB | 15.999% | 0.000% |
+| Whole Shell, popup closed | 10.001 s | 360.02 MiB | 16.298% | 0.000% |
+| Daemon, expanded popup open | 10.000 s | 3.52 MiB | 0.000% | 0.000% |
+| Daemon, popup closed | 10.001 s | 3.54 MiB | 0.000% | 0.200% |
+
+No daemon CPU tick observed in either short window; this does not mean zero CPU. The closed-window
+child CPU includes a normal SSH probe; it is not idle CPU. The UI fix changes only GJS layout,
+adds no process or polling timer, and leaves monitoring/SSH/Tailscale code unchanged. Whole-Shell
+figures do not establish a performance improvement or regression versus earlier active-session runs.
