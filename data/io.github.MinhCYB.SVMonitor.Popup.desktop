@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=SVMonitor Dashboard
+GenericName=Server Monitor Dashboard
+Comment=GTK4 dashboard popup for SVMonitor
+Exec=svmonitor-popup
+Icon=network-server
+Terminal=false
+Categories=Network;System;
+Keywords=ssh;server;monitor;dashboard;popup;
+StartupNotify=false
+NoDisplay=true

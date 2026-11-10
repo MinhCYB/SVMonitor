@@ -1,45 +1,65 @@
 # Maintainer: SVMonitor contributors
 # Build from a local checkout:  cd packaging/arch && makepkg -si
-pkgname=svmonitor
-pkgver=0.1.2
+pkgbase=svmonitor
+pkgname=('svmonitor' 'svmonitor-popup')
+pkgver=0.1.3
 pkgrel=1
 pkgdesc='Lightweight SSH server monitor with system tray (no agents on servers)'
 arch=('x86_64' 'aarch64')
 url='https://github.com/MinhCYB/SVMonitor'
 license=('MIT')
-depends=('openssh' 'gcc-libs' 'glibc')
-makedepends=('cargo')
-optdepends=('tailscale: Tailscale peer awareness'
- 'xdg-terminal-exec: respect the desktop/user default terminal'
- 'gnome-shell-extension-appindicator: tray icon on GNOME')
+makedepends=('cargo' 'gtk4')
 source=()
 # Local build: the tarball is created from the repository this PKGBUILD lives in.
 _repo="$(cd "${startdir:-$(dirname "${BASH_SOURCE[0]:-$0}")}/../.." && pwd)"
 
 prepare() {
-  rm -rf "$srcdir/$pkgname"
-  mkdir -p "$srcdir/$pkgname"
-    (cd "$_repo" && tar --exclude=./target --exclude=./dist --exclude=./.git --exclude='./packaging/*/src' --exclude='./packaging/*/pkg' --exclude='*.pkg.tar.*' --exclude='*.deb' -cf - .) | tar -xf - -C "$srcdir/$pkgname"
+  rm -rf "$srcdir/$pkgbase"
+  mkdir -p "$srcdir/$pkgbase"
+  (cd "$_repo" && tar --exclude=./target --exclude=./dist --exclude=./.git --exclude='./packaging/*/src' --exclude='./packaging/*/pkg' --exclude='*.pkg.tar.*' --exclude='*.deb' -cf - .) | tar -xf - -C "$srcdir/$pkgbase"
 }
 
 build() {
-  cd "$srcdir/$pkgname"
+  cd "$srcdir/$pkgbase"
   export RUSTUP_TOOLCHAIN=stable CARGO_TARGET_DIR=target
-    cargo build --frozen --release 2>/dev/null || cargo build --locked --release
+  # Headless daemon build requires zero GTK
+  cargo build --frozen --release 2>/dev/null || cargo build --locked --release
+  # Optional GTK4 dashboard popup
+  cargo build --frozen --release --features popup --bin svmonitor-popup 2>/dev/null || \
+    cargo build --locked --release --features popup --bin svmonitor-popup
 }
-
 check() {
-  cd "$srcdir/$pkgname"
-    cargo test --locked --release --lib
+  cd "$srcdir/$pkgbase"
+  cargo test --locked --release --lib
 }
 
-package() {
-  cd "$srcdir/$pkgname"
+package_svmonitor() {
+  pkgdesc='Lightweight SSH server monitor with system tray (no agents on servers)'
+  depends=('openssh' 'gcc-libs' 'glibc')
+  optdepends=('svmonitor-popup: optional GTK4 dashboard popup'
+              'tailscale: Tailscale peer awareness'
+              'xdg-terminal-exec: respect desktop/user default terminal'
+              'gnome-shell-extension-appindicator: tray icon on GNOME')
+
+  cd "$srcdir/$pkgbase"
   install -Dm755 target/release/svmonitor "$pkgdir/usr/bin/svmonitor"
   install -Dm644 data/svmonitor.desktop "$pkgdir/usr/share/applications/svmonitor.desktop"
   install -Dm644 data/svmonitor.service "$pkgdir/usr/lib/systemd/user/svmonitor.service"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 docs/USAGE.md "$pkgdir/usr/share/doc/$pkgname/USAGE.md"
+  install -Dm644 docs/COMPATIBILITY.md "$pkgdir/usr/share/doc/$pkgname/COMPATIBILITY.md"
   install -Dm644 docs/config.example.toml "$pkgdir/usr/share/doc/$pkgname/config.example.toml"
+}
+
+package_svmonitor-popup() {
+  pkgdesc='Optional GTK4 dashboard popup for SVMonitor'
+  depends=("svmonitor=$pkgver-$pkgrel" 'gtk4')
+
+  cd "$srcdir/$pkgbase"
+  install -Dm755 target/release/svmonitor-popup "$pkgdir/usr/bin/svmonitor-popup"
+  if [ -f data/io.github.MinhCYB.SVMonitor.Popup.desktop ]; then
+    install -Dm644 data/io.github.MinhCYB.SVMonitor.Popup.desktop "$pkgdir/usr/share/applications/io.github.MinhCYB.SVMonitor.Popup.desktop"
+  fi
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

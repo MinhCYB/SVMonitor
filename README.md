@@ -6,23 +6,41 @@ SVMonitor dành cho người dùng Linux quản lý một hay nhiều máy chủ
 nhận thông báo khi kết nối có vấn đề và mở terminal SSH mà không phải rời desktop.
 Ứng dụng viết bằng Rust, không Electron, WebView hay bộ giao diện nặng.
 
-> **v0.1.2** · Mã nguồn mở theo MIT · Native Linux tray, không thêm GUI framework.
+> **v0.1.3** · Mã nguồn mở theo MIT · Native Linux tray & GTK4 dashboard popup tùy chọn.
 
 ## Có gì nổi bật?
 
-- **System tray:** tổng quan nhiều server, submenu xem thông số và bật/tắt monitoring độc lập.
+- **System tray & Dashboard popup tùy chọn:** tổng quan nhiều server qua native tray menu hoặc
+  mở cửa sổ GTK4 dashboard hiển thị trực quan thanh đo tài nguyên (CPU, RAM, swap, disk), tốc độ
+  mạng RX/TX và các nút thao tác nhanh (Check now, Mute, Bật/Tắt, Terminal).
+- **Tách biệt kiến trúc & siêu nhẹ:** daemon chạy nền hoàn toàn không dính GTK (giữ mức RAM ~4–7 MiB RSS).
+  Popup chạy tiến trình riêng (`svmonitor-popup`), dùng cairo renderer và **thoát hoàn toàn khi đóng** (0 MiB khi đóng).
+- **Không dùng libadwaita:** dùng thuần GTK4 (>=4.8) để tương thích đồng nhất từ Debian 12/13 tới Arch/CachyOS;
+  tự thích ứng theme sáng/tối của desktop.
+- **Thao tác linh hoạt & Cửa sổ:** mục "Open dashboard" ở đầu menu tray (click đơn trên mọi desktop), double-click hoặc
+  middle-click trên GNOME AppIndicator, hoặc click đơn trên KDE Plasma. Cửa sổ toplevel 440×650 không viền (undecorated),
+  giữ mở tới khi đóng qua nút close hoặc phím Escape (không tự đóng); trên Wayland compositor quyết định vị trí.
 - **Tận dụng OpenSSH:** khám phá alias trong `~/.ssh/config`, tái sử dụng SSH key, ssh-agent,
   port, `Include` và `ProxyJump`. Không ghi đè SSH Config, không lưu mật khẩu hay nội dung khóa.
-- **Metrics không cần agent:** CPU, RAM, swap, disk, uptime và load average qua một script chỉ đọc.
-  Không cài dịch vụ lên server, không dùng `sudo`.
+- **Metrics không cần agent & Giám sát mạng:** CPU, RAM, swap, disk, uptime, load và lưu lượng mạng RX/TX
+  qua script chỉ đọc. Hỗ trợ cấu hình `net_interface`, tự nhận diện default route từ `/proc/net/route`,
+  bỏ qua interface ảo/Tailscale mặc định; hiển thị tốc độ dạng `live` (mẫu 1s) hoặc `avg` (trung bình giữa các chu kỳ);
+  tự đánh dấu stale khi mất kết nối SSH hoặc reset counter.
 - **Tách bạch tình trạng:** Tailscale, khả năng kết nối SSH và sức khỏe server được hiển thị riêng.
   Tailscale báo peer offline không tự động có nghĩa là SSH không truy cập được.
 - **Thông báo có kiểm soát:** xác nhận lỗi qua nhiều lần kiểm tra, retry/backoff, cooldown và hạn chế
   cảnh báo khi mạng cục bộ gặp sự cố.
 - **Quick SSH:** mở terminal mặc định qua `xdg-terminal-exec`, hoặc chọn terminal riêng cho SVMonitor.
 - **Lịch sử, autostart và CLI:** vẫn dùng được khi desktop không có khay hệ thống.
-
+- **GNOME 51 native panel:** extension tùy chọn dùng popup GNOME neo ngay dưới panel, không mở cửa sổ GTK; một click xem CPU/RAM, RX/TX, chi tiết và thao tác server. Xem [cài đặt, kiểm chứng và rollback](docs/GNOME.md).
 ## Giao diện thực tế
+
+<p align="center">
+  <img src="docs/images/gnome-dashboard-dark.png" width="442" alt="GNOME 51 native dashboard dark: Disk full-width trong expanded details" />
+  <img src="docs/images/gnome-dashboard-light.png" width="442" alt="GNOME 51 native dashboard light: CPU/RAM giữ nguyên, Disk chỉ trong expanded details" />
+</p>
+
+Ảnh GNOME 51 Wayland thực tế, metrics từ cache đang chạy; alias server đã đổi thành tên trung tính trước khi chụp. Không chứa desktop cá nhân. [Cài đặt extension và kiểm chứng](docs/GNOME.md).
 
 <p align="center">
   <img src="docs/images/metrics-menu.png" width="283" alt="Submenu SVMonitor v0.1.2 thực tế: SSH, Tailscale, CPU, RAM, disk và mục Details" />
@@ -52,6 +70,7 @@ cd packaging/arch
 makepkg -si
 ```
 
+Script đóng gói tạo ra gói `svmonitor` (daemon headless) và gói tùy chọn `svmonitor-popup` (GTK4 dashboard).
 Gói dùng OpenSSH client; `xdg-terminal-exec` là dependency tùy chọn để mở đúng terminal mặc định.
 Trên GNOME, cài và bật extension **AppIndicator and KStatusNotifierItem Support** để thấy tray:
 
@@ -62,18 +81,18 @@ sudo pacman -S xdg-terminal-exec gnome-shell-extension-appindicator
 ### Debian 12 / 13
 
 Build gói trong container Debian 12 giúp giữ nền glibc phù hợp. Cần Docker hoạt động và quyền chạy
-Docker của tài khoản hiện tại; script tải toolchain và dependency build bên trong container.
+Docker của tài khoản hiện tại; script tải toolchain và dependency build bên trong container:
 
 ```sh
 mkdir -p dist
 ./packaging/debian/docker-build.sh
-sudo apt install ./dist/svmonitor_0.1.2_amd64.deb
+sudo apt install ./dist/svmonitor_0.1.3_amd64.deb ./dist/svmonitor-popup_0.1.3_amd64.deb
 ```
 
-Đã kiểm thử cài đặt/gỡ gói và xử lý reload trong container Debian 12 và 13. Desktop Debian chưa
-được thử trực tiếp. Nếu distro có `xdg-terminal-exec`, nên cài thêm; nếu không, SVMonitor hỗ trợ
-`x-terminal-emulator` hoặc cấu hình terminal riêng. GNOME cần extension AppIndicator tương tự Arch.
-
+Trên server headless chỉ cần cài `svmonitor_0.1.3_amd64.deb` (hoàn toàn không cần GTK).
+Lưu ý khi nâng cấp từ v0.1.2: cần khởi động lại daemon (`systemctl --user restart svmonitor.service` hoặc chạy lại `svmonitor run`)
+để nhận diện lệnh điều khiển; lệnh `svmonitor reload` không nạp thêm signal handler vào tiến trình đang chạy. Popup tự kiểm tra
+bản chụp trạng thái và từ chối gửi lệnh an toàn nếu kết nối tới daemon cũ.
 ## Bắt đầu trong vài phút
 
 Giả sử bạn đã có alias `my-server` trong SSH Config và đăng nhập được bằng `ssh my-server`:
@@ -135,7 +154,7 @@ Xem [cấu hình đầy đủ](docs/config.example.toml) và [hướng dẫn s�
 | `svmonitor history my-server` | Xem lịch sử sự kiện |
 | `svmonitor reload` | Nạp lại cấu hình, không khởi động lại daemon |
 | `svmonitor doctor` | Kiểm tra môi trường và gửi thông báo thử |
-
+| `svmonitor-popup [--config PATH]` | Mở cửa sổ GTK4 dashboard popup (tiến trình riêng, tùy chọn) |
 `general.terminal = ""` ưu tiên `xdg-terminal-exec` và các thiết lập XDG của desktop/user.
 Có thể đặt `terminal = "kitty"` hoặc một argv prefix có dấu nháy cho đường dẫn chứa khoảng trắng.
 SVMonitor không đổi terminal mặc định của hệ thống và không ghép lệnh SSH qua shell.
@@ -158,16 +177,21 @@ Chi tiết và cách tái hiện: [benchmark](docs/BENCHMARKS.md).
 
 Cần Linux, OpenSSH client, C linker và **Rust/Cargo 1.89 trở lên** cho `Cargo.lock` hiện tại.
 
+**1. Build daemon headless (không cần GTK hay thư viện đồ họa):**
 ```sh
 cargo build --locked --release
 cargo test --locked
-cargo clippy --locked --all-targets -- -D warnings
 install -Dm755 target/release/svmonitor ~/.local/bin/svmonitor
+```
+
+**2. Build kèm GTK4 dashboard popup (yêu cầu GTK >= 4.8; toàn bộ repo yêu cầu Rust/Cargo >= 1.89):**
+```sh
+cargo build --release --features popup --bin svmonitor-popup
+install -Dm755 target/release/svmonitor-popup ~/.local/bin/svmonitor-popup
 ```
 
 Đảm bảo `~/.local/bin` có trong `PATH`. Build thủ công chỉ cài binary; gói Arch/Debian còn cung cấp
 application entry và user service. Dùng `svmonitor autostart enable` nếu chỉ cài binary.
-
 ## Tương thích và giới hạn
 
 - Linux là nền tảng chính; server cần POSIX `sh`, `/proc` và `df`. Không hỗ trợ metrics macOS/BSD.
@@ -175,8 +199,10 @@ application entry và user service. Dùng `svmonitor autostart enable` nếu ch�
   desktop khác dùng StatusNotifierItem nhưng chưa được kiểm thử trực tiếp.
 - Khóa có passphrase cần nạp vào ssh-agent. Host key mới phải được xác minh bằng SSH tương tác;
   monitoring nền không hỏi mật khẩu và không tự chấp nhận host key.
+- Mức tiêu thụ RAM của daemon nền (~4–7 MiB RSS) được tách biệt hoàn toàn với cửa sổ GTK;
+  popup chạy tiến trình riêng và thoát hoàn toàn khi đóng (0 MiB khi đóng). Cửa sổ popup 440×650 đóng qua nút close hoặc phím Escape;
+  vị trí trên Wayland do compositor quyết định (không hỗ trợ neo vị trí tuyệt đối vào panel).
 - Không có biểu đồ lịch sử trong tray hay điều khiển từ xa. Lịch sử lưu cục bộ dạng JSONL có rotation.
-- Chưa xác minh aarch64, musl hoặc độ ổn định chạy liên tục nhiều ngày.
 
 Tài liệu thêm: [sử dụng & xử lý lỗi](docs/USAGE.md) · [tương thích](docs/COMPATIBILITY.md) ·
 [thiết kế](docs/design.md) · [tự review bảo mật](docs/SECURITY.md).

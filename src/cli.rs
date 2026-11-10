@@ -5,8 +5,8 @@ use crate::health::{Context, Outcome, Tracker};
 use crate::model::*;
 use crate::probe::{self, ProbeResult, ProbeSpec};
 use crate::tray::{self, SvTray};
-use crate::util::{fmt_ago, fmt_duration, fmt_kib, now_unix};
-use crate::{autostart, history, launcher, localnet, sshconfig, tailscale};
+use crate::util::{fmt_ago, fmt_duration, fmt_kib, fmt_rate, now_unix};
+use crate::{autostart, history, ipc, launcher, localnet, sshconfig, tailscale};
 use anyhow::{Context as _, Result, bail};
 use clap::{Parser, Subcommand};
 use std::fs::OpenOptions;
@@ -103,6 +103,11 @@ pub enum Command {
     Paths,
     /// Send a test desktop notification and report whether a tray host is present
     Doctor,
+    /// Native UI and extension commands
+    Ui {
+        #[command(subcommand)]
+        action: UiCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -112,6 +117,36 @@ pub enum AutostartCmd {
     Status,
 }
 
+#[derive(Subcommand, Debug, Clone, PartialEq)]
+pub enum UiCmd {
+    /// Probe one server (or all enabled servers) right now via daemon
+    Check {
+        /// Server name (default: all enabled)
+        server: Option<String>,
+    },
+    /// Pause monitoring for a server
+    Pause {
+        /// Server name
+        name: String,
+    },
+    /// Resume monitoring for a server
+    Resume {
+        /// Server name
+        name: String,
+    },
+    /// Remove a server from monitoring
+    Remove {
+        /// Server name
+        name: String,
+    },
+    /// Add an SSH alias to monitoring
+    Add {
+        /// Server name
+        name: String,
+    },
+    /// Open configuration file in default editor
+    Settings,
+}
 fn paths_for(cli: &Cli) -> Paths {
     let mut p = Paths::from_env();
     if let Some(c) = &cli.config {
@@ -325,7 +360,69 @@ pub fn main(cli: Cli) -> Result<i32> {
             println!("autostart:{}", autostart::autostart_path().display());
             Ok(0)
         }
+        Command::Ui { action } => handle_ui(&paths, action),
     }
+}
+
+fn handle_ui(paths: &Paths, action: UiCmd) -> Result<i32> {
+    match action {
+        UiCmd::Check { server } => {
+            if let Some(s) = &server {
+                config::validate_name(s)?;
+            }
+            send_ui_cmd(paths, ipc::UiCommand::CheckNow { server })?;
+            Ok(0)
+        }
+        UiCmd::Pause { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(
+                paths,
+                ipc::UiCommand::SetEnabled {
+                    server: name,
+                    enabled: false,
+                },
+            )?;
+            Ok(0)
+        }
+        UiCmd::Resume { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(
+                paths,
+                ipc::UiCommand::SetEnabled {
+                    server: name,
+                    enabled: true,
+                },
+            )?;
+            Ok(0)
+        }
+        UiCmd::Remove { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(paths, ipc::UiCommand::Remove { server: name })?;
+            Ok(0)
+        }
+        UiCmd::Add { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(paths, ipc::UiCommand::Add { server: name })?;
+            Ok(0)
+        }
+        UiCmd::Settings => {
+            if !paths.config.exists() {
+                config::save(&paths.config, &config::Config::default())?;
+            }
+            launcher::open_path(&paths.config)?;
+            Ok(0)
+        }
+    }
+}
+
+fn send_ui_cmd(paths: &Paths, cmd: ipc::UiCommand) -> Result<()> {
+    ipc::send(paths, &cmd).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("SVMonitor daemon is not running (start it with `svmonitor run`)")
+        } else {
+            anyhow::anyhow!("failed to send command to monitor: {e}")
+        }
+    })
 }
 
 fn doctor(paths: &Paths) -> Result<i32> {
@@ -475,6 +572,7 @@ fn status(paths: &Paths, json: bool, watch: bool) -> Result<i32> {
                     local_net_ok: localnet::has_default_route(),
                     muted: false,
                     servers: one_shot_all(&cfg, &[]),
+                    command_capable: false,
                 }
             }
         };
@@ -502,8 +600,8 @@ pub fn print_table(s: &Snapshot) {
         println!("! this machine has no network route\n");
     }
     println!(
-        "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  DETAIL",
-        "SERVER", "STATE", "TAILSCALE", "CPU", "RAM", "DISK", "UPTIME"
+        "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>10} {:>10} {:>13} DETAIL",
+        "SERVER", "STATE", "TAILSCALE", "CPU", "RAM", "DISK", "RX", "TX", "UPTIME"
     );
     for v in &s.servers {
         let (cpu, ram, disk, up) = match (&v.metrics, v.ssh) {
@@ -519,6 +617,12 @@ pub fn print_table(s: &Snapshot) {
             ),
             _ => ("-".into(), "-".into(), "-".into(), "-".into()),
         };
+        let (rx, tx) = match (&v.metrics, v.ssh) {
+            (Some(Metrics { net: Some(n), .. }), SshState::Available) => {
+                (fmt_rate(n.rx_bps), fmt_rate(n.tx_bps))
+            }
+            _ => ("-".into(), "-".into()),
+        };
         let mut state = v.overall.label().to_string();
         if v.pending_failures > 0 {
             state += &format!(" ({}/{})", v.pending_failures, v.failure_threshold);
@@ -533,13 +637,15 @@ pub fn print_table(s: &Snapshot) {
             detail = format!("checked {}", fmt_ago(t, s.ts));
         }
         println!(
-            "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>13}  {}",
+            "{:<18} {:<16} {:<14} {:>5} {:>5} {:>5} {:>10} {:>10} {:>13} {}",
             trunc(&v.name, 18),
             trunc(&state, 16),
             trunc(v.tailscale.label(), 14),
             cpu,
             ram,
             disk,
+            rx,
+            tx,
             up,
             detail
         );
@@ -656,6 +762,7 @@ fn check(paths: &Paths, names: &[String], json: bool) -> Result<i32> {
         local_net_ok: localnet::has_default_route(),
         muted: false,
         servers: views,
+        command_capable: false,
     };
     if json {
         println!("{}", serde_json::to_string_pretty(&snap)?);
@@ -695,7 +802,7 @@ impl SignalMaskGuard {
         unsafe {
             let mut set: libc::sigset_t = std::mem::zeroed();
             libc::sigemptyset(&mut set);
-            for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+            for s in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP, libc::SIGUSR1] {
                 libc::sigaddset(&mut set, s);
             }
             let mut old_set: libc::sigset_t = std::mem::zeroed();
@@ -716,7 +823,7 @@ impl Drop for SignalMaskGuard {
     }
 }
 
-fn install_signals(handle: Handle, set: libc::sigset_t) -> Result<()> {
+fn install_signals(handle: Handle, set: libc::sigset_t, paths: Paths) -> Result<()> {
     // Signals were blocked before any threads were spawned; consume in a dedicated one.
     std::thread::Builder::new()
         .name("svm-signal".into())
@@ -730,6 +837,18 @@ fn install_signals(handle: Handle, set: libc::sigset_t) -> Result<()> {
                 }
                 match sig {
                     libc::SIGHUP => handle.send(Cmd::Reload),
+                    // A UI helper queued commands in the spool and woke us; drain and forward.
+                    libc::SIGUSR1 => {
+                        for _ in 0..16 {
+                            let cmds = ipc::drain(&paths);
+                            if cmds.is_empty() {
+                                break;
+                            }
+                            for c in cmds {
+                                handle.send(c.into_cmd());
+                            }
+                        }
+                    }
                     _ => {
                         handle.shutdown();
                         return;
@@ -744,6 +863,7 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
     // Block signals BEFORE spawning any threads (Engine, Notifier, Tray, etc.)
     let (_sig_guard, sig_set) = SignalMaskGuard::block()?;
     let _lock = acquire_lock(&paths)?;
+    ipc::purge(&paths);
     let cfg = config::load(&paths.config)?;
     let (mut engine, handle) = Engine::new(
         cfg.clone(),
@@ -754,7 +874,7 @@ fn run_daemon(paths: Paths, headless: bool, no_notify: bool) -> Result<()> {
         },
         !no_notify,
     );
-    install_signals(handle.clone(), sig_set)?;
+    install_signals(handle.clone(), sig_set, paths.clone())?;
     let mut tray_handle = None;
     if !headless {
         use ksni::blocking::TrayMethods;
@@ -863,4 +983,5 @@ mod tests {
         assert_eq!(trunc("abcdef", 4), "abc…");
         assert_eq!(trunc("abc", 4), "abc");
     }
+
 }

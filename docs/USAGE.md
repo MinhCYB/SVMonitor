@@ -28,6 +28,7 @@ or local tailscaled is down; nothing is alerted), **monitoring off**.
 | `ssh NAME` | open interactive SSH in your terminal |
 | `autostart enable|disable|status` | XDG autostart entry |
 | `reload`, `paths`, `doctor` | maintenance |
+| `svmonitor-popup [--config PATH]` | on-demand GTK4 dashboard popup window (optional binary) |
 
 `svmonitor reload` and `systemctl --user reload svmonitor.service` apply configuration in the existing
 process; neither restarts monitoring nor creates another instance. Invalid TOML is rejected and the
@@ -50,6 +51,32 @@ Quoted paths and arguments are supported; shell substitutions, pipes and redirec
 executed. SSH is appended as separate arguments, preserving aliases, ssh-agent and host-key policy.
 
 
+## GTK4 Dashboard Popup
+The optional `svmonitor-popup` binary provides an on-demand GTK4 graphical window displaying server cards with resource meters (CPU, RAM, swap, disk), network throughput rates (RX/TX), SSH and Tailscale connectivity states, and quick action buttons (Check now, Mute notifications, Enable/Disable, Terminal, Remove).
+
+### Opening the dashboard
+- **Native tray menu:** The first menu item is always **"Open dashboard"**, offering single-click access on all desktop environments including GNOME.
+- **Tray icon click:**
+  - **GNOME AppIndicator:** Double-click left mouse button or middle-click (`SecondaryActivate`). GNOME's `indicatorStatusIcon.js` only sends `Activate` on double-click; a single left-click toggles the native DBusMenu.
+  - **KDE Plasma & others:** Single left-click sends `Activate` directly.
+- **Command line:** Run `svmonitor-popup` (or `svmonitor-popup --config PATH` for custom config paths).
+
+### Architecture and memory footprint
+- **Independent process:** `svmonitor-popup` runs only when summoned and **exits completely when closed** (`exit(0)`). Idle memory cost when closed is 0 MiB.
+- **Separate daemon footprint:** The background daemon remains strictly headless and GUI-free, maintaining its low memory footprint (~4-7 MiB RSS). Daemon RSS targets are completely separate from the GTK window while open.
+- **Cairo renderer:** The popup defaults to `GSK_RENDERER=cairo` (CPU rasterization), unless the environment already selects a renderer.
+- **No libadwaita:** Plain GTK4 (>=4.8) only. Follows system light/dark preference via GTK settings / desktop portal preference and CSS with standard theme colors (`@theme_fg_color`, `@theme_bg_color`), supporting HiDPI displays.
+- **Window behavior & Wayland placement:** Undecorated, non-resizable 440×650 logical-pixel window. Close via **Close** or **Escape**; no auto-dismiss. The compositor chooses placement; tray click coordinates are not used.
+- **Upgrade and daemon capability handshake:** Existing running v0.1.2 daemons lack `SIGUSR1` command file handling. When upgrading to v0.1.3, restart the daemon (`systemctl --user restart svmonitor.service` or restart `svmonitor run`); a configuration reload (`svmonitor reload`) does not add signal handling to an older process. The popup verifies daemon capabilities in the snapshot; if run against an older daemon, interactive actions are refused safely rather than sending unhandled signals.
+- **Fallback:** If `svmonitor-popup` is not installed, the native D-Bus tray menu remains complete and fully functional (v0.1.2 behavior).
+## Network monitoring
+SVMonitor tracks remote network throughput without installing agents:
+- **Configuration:** Configure `net_interface = "eth0"` under `[[server]]` in `config.toml` to monitor a specific interface.
+- **Auto-detection:** When omitted, SVMonitor reads `/proc/net/route` on the remote server to detect the default route interface. If no default route exists, it selects the physical-looking interface with the highest traffic. Virtual interfaces (`lo`, `docker*`, `veth*`, `br-*`, `virbr*`, `tailscale*`, `tun*`, `wg*`) are ignored by default.
+- **Tailscale:** Tailscale traffic is excluded by default and never summed into default traffic. Set `net_interface = "tailscale0"` to monitor tailnet traffic specifically.
+- **Sampling mechanics & qualifiers:**
+ - *First poll / CPU baseline:* Two `/proc/net/dev` readings across a one-second sleep (`sampled = true`). The dashboard labels this `1s sample`; native tray details label it `live`.
+  - *Routine polls:* Rate is computed as an average over the polling interval from counter deltas divided by elapsed remote `/proc/uptime` (`sampled = false`). Monotonic remote uptime eliminates SSH connection latency and local clock drift. Displayed with the `avg` qualifier.
 ## Tray menu
 The native tray keeps urgent servers first. Up to eight monitored servers appear directly; larger fleets use bounded groups, with monitoring-off servers separate. Names containing underscores remain literal.
 
@@ -59,7 +86,22 @@ Global refresh shows queued/checking feedback and is unavailable while probes ar
 
 Refresh completion is tracked per server with a monotonic completed-check counter, including checks that finish within the same second. Configuration actions are queued without waiting under the tray lock; reopening the menu consumes engine replies and displays save errors. A failed save can leave a runtime enable/remove change active until configuration reload; check the error and writable config location before restarting.
 
+## Installation and packages
+- **Arch Linux / CachyOS:**
+  `cd packaging/arch && makepkg -si`
+  Produces `svmonitor` (headless daemon) and `svmonitor-popup` (optional GTK4 dashboard).
+- **Debian 12 / 13:**
+  `./packaging/debian/docker-build.sh` produces `svmonitor_0.1.3_amd64.deb` and `svmonitor-popup_0.1.3_amd64.deb`.
+- **Build from source:**
+  - Headless daemon (no GTK dependencies, Rust >= 1.89):
+    `cargo build --locked --release`
+  - Dashboard popup GUI (requires GTK >= 4.8 development headers; Rust >= 1.89 across the workspace):
+    `cargo build --release --features popup --bin svmonitor-popup`
+
 ## Files
+- Config `~/.config/svmonitor/config.toml` (see `config.example.toml`)
+- History `~/.local/state/svmonitor/events.jsonl` (+ `.1`), `samples.jsonl` (+ `.1`); each rotates at 2 MiB
+- Runtime `$XDG_RUNTIME_DIR/svmonitor/` (lock, state.json, cmd/ spool)
 - Config `~/.config/svmonitor/config.toml` (see `config.example.toml`)
 - History `~/.local/state/svmonitor/events.jsonl` (+ `.1`), `samples.jsonl` (+ `.1`); each rotates at 2 MiB
 - Runtime `$XDG_RUNTIME_DIR/svmonitor/` (lock, state.json)

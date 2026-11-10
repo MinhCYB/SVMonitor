@@ -1,0 +1,333 @@
+/* SVMonitor GNOME Shell Extension Stylesheet
+   Supports Light/Dark mode via neutral alpha layers, width 440px logical, HiDPI scaling */
+
+.svmonitor-menu-box {
+    width: 440px;
+    min-width: 440px;
+    max-width: 440px;
+    padding: 0;
+    margin: 0;
+}
+
+.svmonitor-menu-item {
+    padding: 0;
+    margin: 0;
+    background-color: transparent;
+}
+
+.svmonitor-menu-item .popup-menu-ornament {
+    width: 0;
+    height: 0;
+    margin: 0;
+    padding: 0;
+}
+
+/* Header */
+.svmonitor-header {
+    padding: 10px 16px 8px 16px;
+    spacing: 8px;
+}
+
+.svmonitor-header-title {
+    font-size: 1.15em;
+    font-weight: 700;
+}
+
+.svmonitor-badge {
+    font-size: 0.82em;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 9999px;
+}
+
+.svmonitor-badge-online {
+    background-color: rgba(46, 194, 126, 0.2);
+    color: #2ec27e;
+    border: 1px solid rgba(46, 194, 126, 0.4);
+}
+
+.svmonitor-badge-warning {
+    background-color: rgba(245, 194, 17, 0.2);
+    color: #f5c211;
+    border: 1px solid rgba(245, 194, 17, 0.4);
+}
+
+.svmonitor-badge-down {
+    background-color: rgba(224, 27, 36, 0.2);
+    color: #e01b24;
+    border: 1px solid rgba(224, 27, 36, 0.4);
+}
+
+.svmonitor-badge-attention {
+    background-color: rgba(255, 120, 0, 0.2);
+    color: #ff7800;
+    border: 1px solid rgba(255, 120, 0, 0.4);
+}
+
+.svmonitor-badge-local {
+    background-color: rgba(53, 132, 228, 0.2);
+    color: #3584e4;
+    border: 1px solid rgba(53, 132, 228, 0.4);
+}
+
+.svmonitor-badge-disabled {
+    background-color: rgba(119, 118, 123, 0.2);
+    color: #9a9996;
+    border: 1px solid rgba(119, 118, 123, 0.4);
+}
+
+.svmonitor-badge-unknown {
+    background-color: rgba(154, 153, 150, 0.2);
+    color: #9a9996;
+    border: 1px solid rgba(154, 153, 150, 0.4);
+}
+
+/* Scroll Area */
+.svmonitor-scrollview {
+    max-height: 520px;
+    width: 440px;
+}
+
+.svmonitor-cards-container {
+    spacing: 8px;
+    padding: 4px 12px;
+}
+
+/* Server Card */
+.svmonitor-card {
+    border-radius: 8px;
+    padding: 10px 12px;
+    background-color: rgba(128, 128, 128, 0.12);
+    border: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.svmonitor-card:hover {
+    background-color: rgba(128, 128, 128, 0.2);
+    border-color: rgba(128, 128, 128, 0.35);
+}
+
+.svmonitor-card:focus,
+.svmonitor-card:selected {
+    border-color: #3584e4;
+}
+
+.svmonitor-card-expanded {
+    background-color: rgba(128, 128, 128, 0.18);
+    border-color: rgba(53, 132, 228, 0.4);
+}
+
+.svmonitor-card-disabled {
+    opacity: 0.65;
+}
+.svmonitor-card-toggle {
+    background-color: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
+    box-shadow: none;
+}
+
+/* Status Dot */
+.svmonitor-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    margin-right: 8px;
+}
+
+.svmonitor-dot-online { background-color: #2ec27e; }
+.svmonitor-dot-warning { background-color: #f5c211; }
+.svmonitor-dot-down { background-color: #e01b24; }
+.svmonitor-dot-attention { background-color: #ff7800; }
+.svmonitor-dot-local { background-color: #3584e4; }
+.svmonitor-dot-disabled { background-color: #77767b; }
+.svmonitor-dot-unknown { background-color: #9a9996; }
+
+.svmonitor-card-name {
+    font-size: 1.05em;
+    font-weight: 700;
+}
+
+.svmonitor-card-target {
+    font-size: 0.85em;
+    opacity: 0.7;
+    margin-left: 6px;
+}
+
+/* Equal Two Columns for CPU and RAM */
+.svmonitor-columns {
+    spacing: 12px;
+    margin-top: 6px;
+}
+
+.svmonitor-col {
+    spacing: 3px;
+}
+
+.svmonitor-col-header {
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+.svmonitor-col-value {
+    font-size: 0.85em;
+    font-weight: 700;
+}
+
+.svmonitor-col-sub {
+    font-size: 0.78em;
+    opacity: 0.7;
+    margin-left: 4px;
+}
+
+.svmonitor-progress-bg {
+    height: 5px;
+    border-radius: 3px;
+    background-color: rgba(128, 128, 128, 0.3);
+}
+
+.svmonitor-progress-fill {
+    height: 5px;
+    border-radius: 3px;
+    background-color: #3584e4;
+}
+
+.svmonitor-progress-fill-warning {
+    background-color: #f5c211;
+}
+
+.svmonitor-progress-fill-critical {
+    background-color: #e01b24;
+}
+
+/* Network Row */
+.svmonitor-net-row {
+    font-size: 0.84em;
+    opacity: 0.85;
+    margin-top: 4px;
+}
+
+.svmonitor-net-tag {
+    font-size: 0.78em;
+    opacity: 0.65;
+}
+
+/* Summary / Age Row */
+.svmonitor-age-row {
+    font-size: 0.78em;
+    opacity: 0.65;
+    margin-top: 4px;
+}
+
+.svmonitor-alert-text {
+    font-size: 0.82em;
+    color: #e01b24;
+    font-weight: 600;
+    margin-top: 3px;
+}
+
+/* Detail Box */
+.svmonitor-detail-box {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(128, 128, 128, 0.2);
+    spacing: 6px;
+}
+
+.svmonitor-detail-line {
+    font-size: 0.82em;
+    opacity: 0.95;
+}
+
+.svmonitor-detail-label {
+    font-weight: 600;
+    opacity: 1;
+    margin-right: 6px;
+}
+
+.svmonitor-detail-box .svmonitor-col-sub {
+    opacity: 0.9;
+}
+
+.svmonitor-action-row {
+    spacing: 8px;
+    margin-top: 6px;
+}
+
+/* Buttons */
+.svmonitor-btn {
+    padding: 5px 10px;
+    border-radius: 6px;
+    font-size: 0.85em;
+    font-weight: 600;
+    background-color: rgba(128, 128, 128, 0.16);
+    border: 1px solid rgba(128, 128, 128, 0.25);
+}
+
+.svmonitor-btn:hover {
+    background-color: rgba(128, 128, 128, 0.28);
+    border-color: rgba(128, 128, 128, 0.4);
+}
+
+.svmonitor-btn:active {
+    background-color: rgba(128, 128, 128, 0.38);
+}
+
+.svmonitor-btn-primary {
+    background-color: rgba(53, 132, 228, 0.25);
+    border-color: rgba(53, 132, 228, 0.45);
+    color: #78aeed;
+}
+
+.svmonitor-btn-primary:hover {
+    background-color: rgba(53, 132, 228, 0.38);
+    border-color: rgba(53, 132, 228, 0.6);
+}
+
+.svmonitor-btn-danger {
+    background-color: rgba(224, 27, 36, 0.25);
+    border-color: rgba(224, 27, 36, 0.45);
+    color: #ff7b7b;
+}
+
+.svmonitor-btn-danger:hover {
+    background-color: rgba(224, 27, 36, 0.4);
+    border-color: rgba(224, 27, 36, 0.6);
+}
+
+.svmonitor-btn-danger-confirm {
+    background-color: #e01b24;
+    border-color: #c01c28;
+    color: #ffffff;
+    font-weight: bold;
+}
+
+.svmonitor-btn-disabled {
+    opacity: 0.4;
+}
+
+/* Manage Drawer */
+.svmonitor-manage-drawer {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background-color: rgba(0, 0, 0, 0.15);
+    spacing: 6px;
+}
+
+/* Footer */
+.svmonitor-footer {
+    padding: 10px 16px 12px 16px;
+    border-top: 1px solid rgba(128, 128, 128, 0.2);
+    spacing: 8px;
+}
+
+.svmonitor-footer-feedback {
+    font-size: 0.82em;
+    opacity: 0.75;
+}
+
+.svmonitor-footer-feedback-error {
+    color: #e01b24;
+    font-weight: 600;
+}

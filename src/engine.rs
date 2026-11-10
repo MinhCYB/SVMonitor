@@ -662,6 +662,7 @@ impl Engine {
                 .iter()
                 .map(|s| s.tracker.view(&self.cfg.general, s.inflight))
                 .collect(),
+            command_capable: true,
         }
     }
 

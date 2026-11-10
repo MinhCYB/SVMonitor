@@ -113,6 +113,24 @@ pub fn fmt_kib(kib: u64) -> String {
     }
 }
 
+/// Throughput in bytes/s as "512 B/s", "1.5 MiB/s" (binary units, same family as `fmt_kib`).
+pub fn fmt_rate(bps: u64) -> String {
+    const U: [&str; 4] = ["B/s", "KiB/s", "MiB/s", "GiB/s"];
+    let mut v = bps as f64;
+    let mut i = 0;
+    while v >= 1024.0 && i < U.len() - 1 {
+        v /= 1024.0;
+        i += 1;
+    }
+    if i == 0 {
+        format!("{bps} B/s")
+    } else if v >= 100.0 {
+        format!("{v:.0} {}", U[i])
+    } else {
+        format!("{v:.1} {}", U[i])
+    }
+}
+
 /// "5m ago" style text for a unix timestamp.
 pub fn fmt_ago(ts: i64, now: i64) -> String {
     let d = (now - ts).max(0) as u64;

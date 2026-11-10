@@ -347,6 +347,99 @@ pub fn open_path(path: &std::path::Path) -> Result<()> {
         })?;
     Ok(())
 }
+
+fn is_executable_file(p: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    p.metadata()
+        .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+/// Inner discovery helper allowing mockable executable location and path lookup.
+pub fn find_popup_candidate(
+    current_exe: Option<&std::path::Path>,
+    is_executable: impl Fn(&std::path::Path) -> bool,
+    find_in_path: impl Fn(&str) -> Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    if let Some(exe) = current_exe
+        && let Some(parent) = exe.parent()
+    {
+        let sibling = parent.join("svmonitor-popup");
+        if is_executable(&sibling) {
+            return Some(sibling);
+        }
+    }
+    find_in_path("svmonitor-popup")
+}
+
+/// Resolve the path to the `svmonitor-popup` binary.
+/// Checks sibling of `current_exe` first, then falls back to searching `PATH`.
+pub fn find_popup_bin() -> Option<std::path::PathBuf> {
+    find_popup_candidate(
+        std::env::current_exe().ok().as_deref(),
+        is_executable_file,
+        find_in_path,
+    )
+}
+
+/// Check if the dashboard popup binary is available on the system.
+pub fn is_popup_available() -> bool {
+    find_popup_bin().is_some()
+}
+
+/// Build command line arguments for launching the popup.
+/// Only passes `--config PATH` when the configuration path differs from the default.
+pub fn build_popup_args(
+    popup_bin: &std::path::Path,
+    config_path: &std::path::Path,
+) -> Vec<std::ffi::OsString> {
+    let mut args = vec![popup_bin.as_os_str().to_os_string()];
+    let default_config = crate::config::Paths::from_env().config;
+    if config_path != default_config {
+        args.push("--config".into());
+        args.push(config_path.as_os_str().to_os_string());
+    }
+    args
+}
+
+/// Launch the dashboard popup.
+/// Reuses existing detached process and waiter thread conventions.
+pub fn open_dashboard(config_path: &std::path::Path) -> Result<()> {
+    let Some(bin) = find_popup_bin() else {
+        bail!("svmonitor-popup not found; install package or run with --features popup");
+    };
+    let args = build_popup_args(&bin, config_path);
+    let mut cmd = Command::new(&args[0]);
+    cmd.args(&args[1..])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0);
+
+    if std::env::var_os("GSK_RENDERER").is_none() {
+        cmd.env("GSK_RENDERER", "cairo");
+    }
+
+    unsafe {
+        cmd.pre_exec(|| {
+            let mut set = std::mem::zeroed();
+            libc::sigemptyset(&mut set);
+            libc::sigprocmask(libc::SIG_SETMASK, &set, std::ptr::null_mut());
+            Ok(())
+        });
+    }
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("starting {}: {e}", bin.display()))?;
+    std::thread::Builder::new()
+        .name("svm-reap".into())
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            let _ = child.wait();
+        })?;
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,5 +665,95 @@ mod tests {
             ssh_command("ssh", &m),
             vec!["ssh", "-p", "2200", "--", "u@h"]
         );
+    }
+
+    #[test]
+    fn test_popup_candidate_discovery() {
+        let sibling = std::path::Path::new("/usr/bin/svmonitor-popup");
+        // Sibling exists and is executable -> returns sibling
+        let found = find_popup_candidate(
+            Some(std::path::Path::new("/usr/bin/svmonitor")),
+            |p| p == sibling,
+            |_| None,
+        );
+        assert_eq!(found, Some(sibling.to_path_buf()));
+
+        // Sibling does not exist -> falls back to PATH
+        let path_found = find_popup_candidate(
+            Some(std::path::Path::new("/usr/bin/svmonitor")),
+            |_| false,
+            |bin| {
+                if bin == "svmonitor-popup" {
+                    Some(std::path::PathBuf::from("/usr/local/bin/svmonitor-popup"))
+                } else {
+                    None
+                }
+            },
+        );
+        assert_eq!(
+            path_found,
+            Some(std::path::PathBuf::from("/usr/local/bin/svmonitor-popup"))
+        );
+
+        // Neither exists -> returns None
+        let not_found = find_popup_candidate(
+            Some(std::path::Path::new("/usr/bin/svmonitor")),
+            |_| false,
+            |_| None,
+        );
+        assert_eq!(not_found, None);
+
+        // No current_exe -> falls back to PATH
+        let no_exe = find_popup_candidate(
+            None,
+            |_| false,
+            |bin| {
+                if bin == "svmonitor-popup" {
+                    Some(std::path::PathBuf::from("/bin/svmonitor-popup"))
+                } else {
+                    None
+                }
+            },
+        );
+        assert_eq!(
+            no_exe,
+            Some(std::path::PathBuf::from("/bin/svmonitor-popup"))
+        );
+    }
+
+    #[test]
+    fn test_build_popup_args() {
+        let bin = std::path::Path::new("/opt/svmonitor-popup");
+        let default_config = crate::config::Paths::from_env().config;
+
+        // Default config: --config omitted
+        let default_args = build_popup_args(bin, &default_config);
+        assert_eq!(default_args, vec![bin.as_os_str().to_os_string()]);
+
+        // Custom config: --config included
+        let custom_config = std::path::Path::new("/tmp/my_custom_config.toml");
+        let custom_args = build_popup_args(bin, custom_config);
+        assert_eq!(
+            custom_args,
+            vec![
+                bin.as_os_str().to_os_string(),
+                std::ffi::OsString::from("--config"),
+                custom_config.as_os_str().to_os_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_open_dashboard_fails_when_binary_absent() {
+        // When popup is not available, open_dashboard must fail with clear message
+        if !is_popup_available() {
+            let res = open_dashboard(std::path::Path::new("/nonexistent.toml"));
+            assert!(res.is_err());
+            let err = res.unwrap_err().to_string();
+            assert!(
+                err.contains("svmonitor-popup not found"),
+                "Expected not found error, got: {err}"
+            );
+        }
     }
 }
