@@ -88,3 +88,10 @@ The XDG default-terminal specification is still a proposal; SVMonitor delegates 
 - No graphs or remote administration actions. History is local, size-rotated JSONL.
 - Measurements cover minutes and accelerated probes, not multi-day 24/7 operation.
 - Source and packaging scripts are public; no binary release or package repository is provided here.
+
+## v0.1.3 packaging verification
+
+Both split Arch packages built with `makepkg --force --nodeps --nocheck`; the project test suite ran separately.
+Both Debian packages built inside Debian 12 (glibc 2.36, GTK 4.8), then installed together with `apt-get` in a fresh Debian 12 container.
+Installed `svmonitor --version`, `svmonitor-popup --help` and package version queries passed.
+Debian GUI interaction itself was not exercised inside the container; desktop interaction was verified on CachyOS GNOME Wayland.
