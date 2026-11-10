@@ -269,16 +269,16 @@ class SvmonitorIndicator extends PanelMenu.Button {
         }
     }
 
-    _createProgress(pct) {
+    _createProgress(pct, fullWidth = false) {
         const fraction = Number.isFinite(pct) ? Math.min(100, Math.max(0, pct)) / 100 : 0;
         // St.Bin centers its child; a horizontal box allocates from the LTR edge.
         const track = new St.BoxLayout({
             style_class: 'svmonitor-progress-bg',
-            x_align: Clutter.ActorAlign.START,
+            x_align: fullWidth ? Clutter.ActorAlign.FILL : Clutter.ActorAlign.START,
             x_expand: true,
         });
         track.set_text_direction(Clutter.TextDirection.LTR);
-        track.set_style('width: 180px; min-width: 180px;');
+        if (!fullWidth) track.set_style('width: 180px; min-width: 180px;');
         const severity = pct >= 90 ? 'svmonitor-progress-fill-critical'
             : (pct >= 75 ? 'svmonitor-progress-fill-warning' : '');
         const fill = new St.Widget({
@@ -483,7 +483,7 @@ class SvmonitorIndicator extends PanelMenu.Button {
                     text: `${(worstDisk.used_kib / 1048576).toFixed(1)} GiB / ${(worstDisk.total_kib / 1048576).toFixed(1)} GiB`,
                     style_class: 'svmonitor-col-sub',
                 }));
-                diskBox.add_child(this._createProgress(worstDisk.pct));
+                diskBox.add_child(this._createProgress(worstDisk.pct, true));
                 detailBox.add_child(diskBox);
             }
         }

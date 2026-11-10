@@ -236,13 +236,17 @@
 
 .svmonitor-detail-line {
     font-size: 0.82em;
-    opacity: 0.85;
+    opacity: 0.95;
 }
 
 .svmonitor-detail-label {
     font-weight: 600;
-    opacity: 0.75;
+    opacity: 1;
     margin-right: 6px;
+}
+
+.svmonitor-detail-box .svmonitor-col-sub {
+    opacity: 0.9;
 }
 
 .svmonitor-action-row {

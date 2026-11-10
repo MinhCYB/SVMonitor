@@ -36,6 +36,13 @@ nhận thông báo khi kết nối có vấn đề và mở terminal SSH mà kh�
 ## Giao diện thực tế
 
 <p align="center">
+  <img src="docs/images/gnome-dashboard-dark.png" width="442" alt="GNOME 51 native dashboard dark: Disk full-width trong expanded details" />
+  <img src="docs/images/gnome-dashboard-light.png" width="442" alt="GNOME 51 native dashboard light: CPU/RAM giữ nguyên, Disk chỉ trong expanded details" />
+</p>
+
+Ảnh GNOME 51 Wayland thực tế, metrics từ cache đang chạy; alias server đã đổi thành tên trung tính trước khi chụp. Không chứa desktop cá nhân. [Cài đặt extension và kiểm chứng](docs/GNOME.md).
+
+<p align="center">
   <img src="docs/images/metrics-menu.png" width="283" alt="Submenu SVMonitor v0.1.2 thực tế: SSH, Tailscale, CPU, RAM, disk và mục Details" />
 </p>
 

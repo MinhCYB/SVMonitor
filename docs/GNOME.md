@@ -48,15 +48,19 @@ Fill width follows the allocated track width; 0% hides the fill and 100% fills t
 `St.Bin` centered its child even with `x_align: START`; horizontal `St.BoxLayout` fixes the allocation
 rather than offsetting the fill with CSS. No animation or per-bar timer is used.
 
+Disk alone stretches across the available Details width; CPU/RAM keep their 180 px tracks.
+The Disk mount and percentage share a header, used/total GiB sit below, and the full-width track
+is last. Detail text opacity is raised without changing the theme foreground or popup geometry.
+
 ## Verified on the current desktop
 
-- GNOME 51.1 Wayland, live `catplus` and `ms24server` cache: native panel popup, two cards, CPU/RAM columns, RX/TX and details. Direct Shell screenshot avoids portal screenshot UI closing the popup.
+- GNOME 51.1 Wayland, two live server caches: native panel popup, two cards, CPU/RAM columns, RX/TX and details. Direct Shell screenshots avoid portal screenshot UI closing the popup.
 - Check, Refresh All, Pause/Resume and SSH launcher exercised through the extension; SSH terminal process observed. Settings launched the default editor. Manage drawer exposes removal; real server removal deliberately not exercised.
 - Offline presentation uses last-known values, suppresses current throughput; isolated fixtures never interrupt a server. Sixteen-server fixture: list height 520 logical px, menu 614 px, footer 52 px.
 - Disable restores the original SVMonitor AppIndicator; re-enable succeeds. Exact SNI id matching excludes `svmonitor-helper` even with the same title. No unrelated indicator is hidden.
 - Current monitor geometry: 1920×1080 and 2560×1440. Shell theme scale switched to 2 and restored to 1; this is a runtime smoke check, not exhaustive fractional-scaling or alternate-monitor visual verification.
 - GJS presentation regressions: 76 passed. Rust `native_ui` integration checks: 3 passed. Only GNOME 51 is declared supported by this extension.
-- Progress/Disk fix: `test_widgets.js` exercised real Shell actors at 0/1/5/10/50/90/99/100%, collapsed/expanded, offline/stale and sixteen servers: 108 checks passed in each dark/light theme. Live screenshots confirmed the two-server popup in both themes; original theme restored.
+- Final polish: `test_widgets.js` checks real Shell actors at 0/1/5/10/50/90/99/100%, collapsed/expanded, offline/stale and sixteen servers: 124 checks passed in each dark/light theme. Disk width equals its Details resource width; CPU/RAM remain 180 px. Original theme restored.
 
 ### Widget regression runner
 
@@ -67,8 +71,18 @@ development session with the extension already active, run (replace the source p
 (async () => { const tests = await import('file:///absolute/path/SVMonitor/gnome-extension/svmonitor@svmonitor.local/test_widgets.js'); return await tests.run(Main.extensionManager.lookup('svmonitor@svmonitor.local').stateObj._indicator); })()
 ```
 
-Expected: `{checks: 108, failures: []}`. The runner creates temporary fixture actors, invokes no server
+Expected: `{checks: 124, failures: []}`. The runner creates temporary fixture actors, invokes no server
 actions, restores indicator state and destroys the fixtures. Reloaded test modules need a fresh URI
 because Shell caches ES modules; no Shell restart or unsafe-mode switch is required.
 
 See [benchmarks](BENCHMARKS.md) for whole-Shell measurements; these cannot establish extension-private RSS or CPU.
+
+## Final screenshots
+
+![GNOME native dashboard, dark](images/gnome-dashboard-dark.png)
+
+![GNOME native dashboard, light](images/gnome-dashboard-light.png)
+
+Actual GNOME 51 Wayland captures with live cached metrics. Server aliases replaced in memory with
+`server-01`/`server-02` before capture; metrics unchanged. Only popup pixels are retained, without
+desktop content or image metadata. The UI snapshot and theme were restored afterward.

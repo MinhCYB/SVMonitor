@@ -45,6 +45,11 @@ export async function run(indicator) {
             await settle();
             const tracks = bars(expanded);
             check(tracks.length === 3, `${pct}% expanded has CPU/RAM/Disk bars`);
+            const diskTrack = tracks[2];
+            check(Boolean(diskTrack) && Math.abs(diskTrack.width - diskTrack.get_parent().width) <= 1,
+                `${pct}% Disk spans the full Details resource width`);
+            check(tracks[0].width === 180 && tracks[1].width === 180,
+                `${pct}% CPU/RAM retain their existing track width`);
             const text = labels(expanded).join(' ');
             check(text.includes(`${pct}.0 GiB / 100.0 GiB`) && text.includes(`${pct}%`), `${pct}% expanded Disk has used/total/percent`);
             for (const [i, track] of tracks.entries()) {

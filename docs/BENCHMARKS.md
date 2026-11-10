@@ -57,12 +57,12 @@ Same machine and benchmark runner, installed final release binary 3,129,224 byte
 
 | Scenario | Duration | RSS avg / max / final | Threads max | FDs | Max SSH children | CPU daemon | CPU SSH children | CPU total |
 |---|---|---|---|---|---|---|---|---|
-| Tray, real catplus, 60 s interval | 240 s | 4.3 / 6.6 / 4.8 MiB | 9 | 10 | 1 | 0.017% | 0.029% | 0.046% |
+| Tray, real test VPS, 60 s interval | 240 s | 4.3 / 6.6 / 4.8 MiB | 9 | 10 | 1 | 0.017% | 0.029% | 0.046% |
 | Tray, two unreachable targets | 120 s | 5.5 / 6.8 / 4.8 MiB | 9 | 10 | 1 | 0.033% | 0.058% | 0.092% |
 
 Both measured scenarios remain within the RSS/CPU targets. RSS residency varies under memory pressure; lower RSS is not evidence of an allocation reduction. CPU totals increased by 0.009/0.017 percentage points versus v0.1.1 during concurrent build activity; these tick-based short runs do not establish causation or multi-day leak freedom.
 
-Additional native-menu smoke: 32 simulated servers (24 online, 2 refused, 2 authentication failures, 4 disabled), all reachable in the exported D-Bus hierarchy. A real D-Bus refresh click showed queued feedback and completed. GTK/libdbusmenu rendered the actual application's grouped navigation, disabled list and metrics/details in Adwaita light/dark on XWayland. The fake SSH fixture never contacted or interrupted a server. Installed binary v0.1.2 separately collected real catplus metrics and launched its SSH terminal.
+Additional native-menu smoke: 32 simulated servers (24 online, 2 refused, 2 authentication failures, 4 disabled), all reachable in the exported D-Bus hierarchy. A real D-Bus refresh click showed queued feedback and completed. GTK/libdbusmenu rendered the actual application's grouped navigation, disabled list and metrics/details in Adwaita light/dark on XWayland. The fake SSH fixture never contacted or interrupted a server. Installed binary v0.1.2 separately collected real test VPS metrics and launched its SSH terminal.
 
 ## v0.1.3 optional dashboard
 
@@ -89,7 +89,7 @@ Actual GNOME Wayland GTK surfaces were captured in light/dark themes, a 2x scale
 20-server scrolling and stale/offline state. Captures used temporary GTK snapshot instrumentation,
 removed afterward; not panel-anchoring proof. Actual SNI Activate/SecondaryActivate opened one
 dashboard; GTK buttons exercised mute, pause/resume and check-all against an isolated real daemon.
-Read-only `catplus` check returned live CPU/RAM/disk and RX/TX. No multi-day leak claim.
+Read-only test VPS check returned live CPU/RAM/disk and RX/TX. No multi-day leak claim.
 
 ## Native GNOME 51 panel dashboard
 
@@ -128,3 +128,20 @@ No daemon CPU tick observed in either short window; this does not mean zero CPU.
 child CPU includes a normal SSH probe; it is not idle CPU. The UI fix changes only GJS layout,
 adds no process or polling timer, and leaves monitoring/SSH/Tailscale code unchanged. Whole-Shell
 figures do not establish a performance improvement or regression versus earlier active-session runs.
+
+### Final full-width Disk and contrast polish
+
+Same non-isolated GNOME 51 Wayland session, two live servers. State verified at both ends of
+each 10-second window. No engine changes, added process or timer; full-width Disk uses the existing
+allocation callback. Desktop activity prevents attributing whole-Shell CPU differences to this fix.
+
+| Surface/state | Duration | RSS at end | CPU self | CPU reaped children |
+|---|---|---|---|---|
+| Whole Shell, expanded popup open | 9.999 s | 341.31 MiB | 20.502% | 0.000% |
+| Whole Shell, popup closed | 9.999 s | 341.98 MiB | 28.003% | 0.000% |
+| Daemon, expanded popup open | 9.999 s | 3.47 MiB | 0.000% | 0.000% |
+| Daemon, popup closed | 9.999 s | 3.65 MiB | 0.000% | 0.000% |
+
+No daemon CPU tick observed in these short windows; this is not a zero-CPU or long-run claim.
+No significant daemon resource regression observed in this smoke check; extension-private cost
+and statistically significant performance differences remain unmeasured.
