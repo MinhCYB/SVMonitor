@@ -90,3 +90,24 @@ Actual GNOME Wayland GTK surfaces were captured in light/dark themes, a 2x scale
 removed afterward; not panel-anchoring proof. Actual SNI Activate/SecondaryActivate opened one
 dashboard; GTK buttons exercised mute, pause/resume and check-all against an isolated real daemon.
 Read-only `catplus` check returned live CPU/RAM/disk and RX/TX. No multi-day leak claim.
+
+## Native GNOME 51 panel dashboard
+
+Current CachyOS GNOME 51.1 Wayland session, two real monitored servers. Samples taken inside
+Shell from `/proc/self/stat` and `/proc/self/status`; CPU uses 100 Hz ticks and one-core percentage.
+Popup state verified at both ends of each 10-second interval. Desktop and other extensions active;
+these are **whole-Shell measurements**, not isolated SVMonitor overhead or an idle benchmark.
+
+| Popup state | Duration | Whole-Shell RSS at end | Whole-Shell CPU |
+|---|---|---|---|
+| Open throughout | 9.999 s | 365.58 MiB | 12.201% |
+| Closed throughout | 10.001 s | 363.98 MiB | 12.299% |
+
+Daemon RSS separately observed at 4.0 MiB. Native UI adds no GTK helper process; GJS runs inside
+Shell, so its private RSS cannot be inferred from the rows above. These short, non-isolated windows
+do not prove the extension meets the daemon's CPU/RAM targets. Earlier samples where a screenshot
+portal or input helper closed the popup were discarded. No multi-day runtime claim.
+
+Live verification: two-server popup and SSH launch, Check/Refresh All, Pause/Resume, default config
+editor, stale/offline fixtures, exact tray takeover/restore. Sixteen-server fixture measured a 520 px
+scroll viewport within a 614 px menu with fixed 52 px footer. See [GNOME instructions](GNOME.md).

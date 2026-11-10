@@ -103,6 +103,11 @@ pub enum Command {
     Paths,
     /// Send a test desktop notification and report whether a tray host is present
     Doctor,
+    /// Native UI and extension commands
+    Ui {
+        #[command(subcommand)]
+        action: UiCmd,
+    },
 }
 
 #[derive(Subcommand)]
@@ -112,6 +117,36 @@ pub enum AutostartCmd {
     Status,
 }
 
+#[derive(Subcommand, Debug, Clone, PartialEq)]
+pub enum UiCmd {
+    /// Probe one server (or all enabled servers) right now via daemon
+    Check {
+        /// Server name (default: all enabled)
+        server: Option<String>,
+    },
+    /// Pause monitoring for a server
+    Pause {
+        /// Server name
+        name: String,
+    },
+    /// Resume monitoring for a server
+    Resume {
+        /// Server name
+        name: String,
+    },
+    /// Remove a server from monitoring
+    Remove {
+        /// Server name
+        name: String,
+    },
+    /// Add an SSH alias to monitoring
+    Add {
+        /// Server name
+        name: String,
+    },
+    /// Open configuration file in default editor
+    Settings,
+}
 fn paths_for(cli: &Cli) -> Paths {
     let mut p = Paths::from_env();
     if let Some(c) = &cli.config {
@@ -325,7 +360,69 @@ pub fn main(cli: Cli) -> Result<i32> {
             println!("autostart:{}", autostart::autostart_path().display());
             Ok(0)
         }
+        Command::Ui { action } => handle_ui(&paths, action),
     }
+}
+
+fn handle_ui(paths: &Paths, action: UiCmd) -> Result<i32> {
+    match action {
+        UiCmd::Check { server } => {
+            if let Some(s) = &server {
+                config::validate_name(s)?;
+            }
+            send_ui_cmd(paths, ipc::UiCommand::CheckNow { server })?;
+            Ok(0)
+        }
+        UiCmd::Pause { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(
+                paths,
+                ipc::UiCommand::SetEnabled {
+                    server: name,
+                    enabled: false,
+                },
+            )?;
+            Ok(0)
+        }
+        UiCmd::Resume { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(
+                paths,
+                ipc::UiCommand::SetEnabled {
+                    server: name,
+                    enabled: true,
+                },
+            )?;
+            Ok(0)
+        }
+        UiCmd::Remove { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(paths, ipc::UiCommand::Remove { server: name })?;
+            Ok(0)
+        }
+        UiCmd::Add { name } => {
+            config::validate_name(&name)?;
+            send_ui_cmd(paths, ipc::UiCommand::Add { server: name })?;
+            Ok(0)
+        }
+        UiCmd::Settings => {
+            if !paths.config.exists() {
+                config::save(&paths.config, &config::Config::default())?;
+            }
+            launcher::open_path(&paths.config)?;
+            Ok(0)
+        }
+    }
+}
+
+fn send_ui_cmd(paths: &Paths, cmd: ipc::UiCommand) -> Result<()> {
+    ipc::send(paths, &cmd).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("SVMonitor daemon is not running (start it with `svmonitor run`)")
+        } else {
+            anyhow::anyhow!("failed to send command to monitor: {e}")
+        }
+    })
 }
 
 fn doctor(paths: &Paths) -> Result<i32> {
@@ -886,4 +983,5 @@ mod tests {
         assert_eq!(trunc("abcdef", 4), "abc…");
         assert_eq!(trunc("abc", 4), "abc");
     }
+
 }

@@ -32,6 +32,7 @@ nhận thông báo khi kết nối có vấn đề và mở terminal SSH mà kh�
   cảnh báo khi mạng cục bộ gặp sự cố.
 - **Quick SSH:** mở terminal mặc định qua `xdg-terminal-exec`, hoặc chọn terminal riêng cho SVMonitor.
 - **Lịch sử, autostart và CLI:** vẫn dùng được khi desktop không có khay hệ thống.
+- **GNOME 51 native panel:** extension tùy chọn dùng popup GNOME neo ngay dưới panel, không mở cửa sổ GTK; một click xem CPU/RAM, RX/TX, chi tiết và thao tác server. Xem [cài đặt, kiểm chứng và rollback](docs/GNOME.md).
 ## Giao diện thực tế
 
 <p align="center">

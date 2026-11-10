@@ -1,0 +1,10 @@
+{
+  "name": "SVMonitor",
+  "description": "Native GNOME panel monitor and control for remote servers",
+  "uuid": "svmonitor@svmonitor.local",
+  "shell-version": [
+    "51"
+  ],
+  "url": "https://github.com/MinhCYB/SVMonitor",
+  "version": 1
+}
